@@ -4,7 +4,10 @@ import { defaults } from '../../src/plugin/types';
 import { traceEntry } from '../../src/plugin/trace';
 import { WHALE_ICON } from '../../src/plugin/logo';
 import { addIcon } from './obsidian-mock';
+import {MemoryModal} from '../../src/plugin/memory/modal';
+import {parseCommand} from '../../src/plugin/commands';
 import type { Chat } from '../../src/plugin/types';
+import { checkHistory } from './history-checks';
 
 addIcon('deepsidian-whale',WHALE_ICON);
 const start=Date.UTC(2026,8,13,2,0,0);
@@ -24,6 +27,8 @@ const trace=[
 ];
 const chat:Chat={id:'00000000-0000-4000-8000-000000000001',title:'理解 KV cache',systemPrompt:'你是学习笔记助手。根据用户明确背景解释，并使用 [[笔记路径]] 标明来源。',messages:[{role:'user',text:'结合我的注意力机制笔记，解释 KV cache 的作用。',source:{path:'学习笔记/注意力机制.md',selection:'自回归生成',nearby:'已记录 Query、Key、Value 与注意力公式。'}},{role:'assistant',text:answer,model:'deepseek-flash',status:'完成',elapsedMs:4320,reasoning:'先查看已提供的笔记结构，再从前端增量计算的角度解释 KV cache，区分计算复用与显存占用。',trace}]};
 const screen=new URLSearchParams(location.search).get('screen') ?? 'chat';
+let memoryEntries=[{id:'preview',text:'熟悉前端，首次出现的 agent 术语需要简短解释。',source:'合成预览记录',createdAt:'2026-09-13'}];
+let memoryRules='# 整理规则\n仅保存用户明确表达的持久偏好。';
 const plugin:any={
  state:{settings:{...defaults,setupComplete:screen!=='setup',background:'熟悉前端，正在了解 Transformer。'},chats:[chat],activeId:chat.id},
  get chat(){return this.state.chats.find((c:Chat)=>c.id===this.state.activeId);},
@@ -36,9 +41,13 @@ const plugin:any={
  connect:async()=>{throw Error('组件预览不启动 DSH，请在 Obsidian 中连接。');},disconnect:async()=>{},
  newChat(){this.state.chats.unshift({id:'new',title:'新对话',messages:[]});this.state.activeId='new';this.view.renderMessages();this.view.refreshChats();},
  ask:async()=>{},stopAnswer(){},
+ memory(){return {snapshot:async()=>({entries:memoryEntries,rules:memoryRules,revision:'preview'}),update:async(_rev:string,c:any)=>{if(c.add)memoryEntries.push({id:String(Date.now()),text:c.add,source:'合成预览记录',createdAt:'2026-09-13'});if(c.remove)memoryEntries=memoryEntries.filter(e=>e.id!==c.remove);if(c.edit)memoryEntries=memoryEntries.map(e=>e.id===c.edit.id?{...e,text:c.edit.text}:e);if(c.rules!==undefined)memoryRules=c.rules;}};},
+ openMemory(tab:'entries'|'rules'='entries'){new MemoryModal(this,tab).open();},
+ async runCommand(text:string){const c=parseCommand(text);if(c?.name==='memory')this.openMemory();else if(c?.name==='rules')this.openMemory('rules');else if(c?.name==='plan')return {question:c.args};else if(c?.name==='remember')await this.memory().update('preview',{add:c.args});return {};},
 };
 const view=new LearningView({app:plugin.app,container:document.getElementById('app')} as any,plugin);
 await view.onOpen();
+if(screen==='history-tests') await checkHistory(document.body.createDiv());
 if(screen==='trace') Array.from(document.querySelectorAll<HTMLButtonElement>('.ds-tabs button')).find(b=>b.textContent==='轨迹')?.click();
 if(screen==='setup') new SetupModal(plugin).open();
 document.body.dataset.ready='true';

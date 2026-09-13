@@ -8,8 +8,6 @@
 .deepsidian [hidden] { display:none!important; }
 .deepsidian .ds-muted,.deepsidian .ds-status { color:var(--text-muted); font-size:11px; line-height:1.5; }
 .deepsidian .ds-toolbar { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
-.deepsidian .ds-history { padding-bottom:10px; border-bottom:1px solid var(--background-modifier-border); }
-.deepsidian .ds-history > select { flex:1; width:100px; box-shadow:none; border:0; background:transparent; font-size:12px; }
 .deepsidian textarea { width:100%; resize:vertical; }
 .deepsidian details { font-size:11px; flex-shrink:0; }
 .deepsidian summary { cursor:pointer; color:var(--text-muted); overflow-wrap:anywhere; }
@@ -111,3 +109,27 @@
 
 .deepsidian .ds-header { justify-content:flex-start; }
 .deepsidian .ds-brand { margin-right:auto; }
+.ds-command-menu { max-height:240px; overflow:auto; border:1px solid var(--background-modifier-border); border-radius:8px; margin-bottom:8px; padding:4px; }
+.ds-command-menu[hidden] { display:none; }
+.deepsidian .ds-command-option { display:flex; flex-direction:column; align-items:flex-start; gap:3px; width:100%; border:0; box-shadow:none; background:transparent; padding:8px; text-align:left; height:auto; }
+.deepsidian .ds-command-option[aria-selected="true"] { background:var(--background-modifier-hover); }
+.ds-command-option small { color:var(--text-muted); }
+.ds-memory-modal { min-width:min(540px,75vw); }
+.ds-memory-editor { display:block; width:100%; min-height:75px; margin:10px 0; resize:vertical; }
+.ds-memory-modal .ds-memory-entry { border-top:1px solid var(--background-modifier-border); padding:12px 0; }
+.ds-memory-modal .ds-toolbar { display:flex; gap:8px; margin:8px 0; }
+
+/* History overlays the transcript instead of reserving another toolbar row. */
+.deepsidian .ds-header { position:relative; flex-shrink:0; }
+.deepsidian .ds-brand { min-width:0; flex:1; }
+.deepsidian .ds-chat-title { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.deepsidian .ds-header-actions { display:flex; gap:4px; flex-shrink:0; }
+.deepsidian .ds-history-popover { position:absolute; z-index:20; top:calc(100% + 8px); right:0; width:min(360px, 100%); padding:10px; border:1px solid var(--background-modifier-border); border-radius:12px; background:var(--background-primary); box-shadow:0 8px 30px #0003; }
+.deepsidian .ds-history-popover > input { width:100%; margin-bottom:8px; }
+.deepsidian .ds-history-list { max-height:min(360px, 45vh); overflow-y:auto; }
+.deepsidian .ds-history-item { display:flex; flex-direction:column; align-items:flex-start; gap:4px; width:100%; height:auto; padding:10px; text-align:left; background:transparent; box-shadow:none; border:0; }
+.deepsidian .ds-history-item:hover,.deepsidian .ds-history-item:focus-visible { background:var(--background-modifier-hover); }
+.deepsidian .ds-history-item[aria-current="true"] { background:var(--background-secondary); }
+.deepsidian .ds-history-title { max-width:100%; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.deepsidian .ds-history-item small,.deepsidian .ds-history-empty { color:var(--text-muted); font-size:11px; }
+.deepsidian .ds-history-empty { padding:16px 8px; }

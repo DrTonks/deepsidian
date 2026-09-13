@@ -15,6 +15,9 @@ import { VIEW, defaults, type Saved, type Chat, type Message } from './types';
 import { LearningView } from './view';
 import { DeepsidianSettings } from './settings';
 import { SetupModal } from './setup';
+import { MemoryStore } from './memory/store';
+import { MemoryModal } from './memory/modal';
+import { commands, parseCommand } from './commands';
 
 export default class Deepsidian extends Plugin {
   state: Saved = { settings: { ...defaults }, chats: [], activeId: '' };
@@ -40,12 +43,15 @@ export default class Deepsidian extends Plugin {
   private disposed = false;
   private updateTask?: Promise<void>;
   private lastUsed = Date.now();
+  private connecting?: Promise<DshClient>;
+  private disconnecting?: Promise<void>;
+  private memoryStore?: MemoryStore;
   async onload() {
     addIcon('deepsidian-whale', WHALE_ICON);
     const saved = await this.loadData() as Partial<Saved> | null;
     this.state = { settings: { ...defaults, ...saved?.settings }, chats: saved?.chats ?? [], activeId: saved?.activeId ?? '', updates: saved?.updates };
     if (!this.chat) this.newChat();
-    // No runtime discovery or child process during plugin activation.
+    // Connect only after Obsidian has restored its layout; do not block onload.
     for (const chat of this.state.chats) for (const message of chat.messages) if (message.status === '生成中') message.status = '上次运行被中断';
     this.registerView(VIEW, leaf => new LearningView(leaf, this));
     this.addRibbonIcon('deepsidian-whale', 'Deepsidian 学习助手', () => void this.open());
@@ -62,9 +68,46 @@ export default class Deepsidian extends Plugin {
     }));
     this.addSettingTab(new DeepsidianSettings(this));
     this.addCommand({ id: 'setup', name: '设置与连接引导', callback: () => new SetupModal(this).open() });
+    this.addCommand({id:'memory',name:'管理本库记忆',callback:()=>this.openMemory()});
+    this.addCommand({id:'memory-rules',name:'编辑记忆整理规则',callback:()=>this.openMemory('rules')});
+    this.addCommand({id:'memory-organize',name:'整理记忆索引（本地）',callback:()=>void this.organizeMemory().catch(e=>new Notice(String(e)))});
+    this.app.workspace.onLayoutReady(()=>{
+      if(this.disposed || !this.state.settings.autoConnect)return;
+      void this.connect().catch(error=>{ if(!this.disposed){this.status=`自动连接未完成：${String(error)}；可打开连接引导`;this.view?.refreshStatus();} });
+    });
     this.registerInterval(window.setInterval(() => { if (!this.busy && this.client?.connected && Date.now() - this.lastUsed > 300000) void this.disconnect(); }, 30000));
   }
   onunload() { this.disposed = true; void this.client?.stop(); }
+  memory(){
+    if(!this.memoryStore){
+      if(!(this.app.vault.adapter instanceof FileSystemAdapter))throw Error('记忆仅支持桌面本地库');
+      this.memoryStore=new MemoryStore(join(this.app.vault.adapter.getBasePath(),this.manifest.dir??`${this.app.vault.configDir}/plugins/${this.manifest.id}`,'memory'));
+    }
+    return this.memoryStore;
+  }
+  openMemory(tab:'entries'|'rules'='entries'){new MemoryModal(this,tab).open();}
+  async organizeMemory(){const s=await this.memory().snapshot();await this.memory().update(s.revision,{organize:true});new Notice('已重建记忆索引；未调用模型或提炼聊天');}
+  async runCommand(text:string):Promise<{question?:string}> {
+    const command=parseCommand(text); if(!command)throw Error('指令格式无效，输入 / 查看指令');
+    const {name,args}=command;
+    if(!commands.some(c=>c.name===name))throw Error(`未知指令 /${name}；输入 / 查看可用指令`);
+    if(['memory','rules','organize','new','connect','help'].includes(name) && args)throw Error(`/${name} 不接受参数`);
+    if(this.busy && ['plan','goal','new','connect'].includes(name))throw Error('请先结束当前回答');
+    if(name==='plan'){if(!args)throw Error('用法：/plan 要规划的问题');return {question:`请先为以下问题制定可检查的计划，说明目标、步骤、依赖和验收条件。本轮仅研究和规划，不执行实施步骤。\n\n${args}`};}
+    if(name==='goal'){
+      if(args.length>2000)throw Error('目标最多 2000 字符');
+      if(!args){new Notice(this.chat?.goal?`当前目标：${this.chat.goal}`:'用法：/goal 目标内容；/goal clear 清除。不自动续跑。',8000);return {};}
+      const chat=this.chat;if(!chat)throw Error('当前会话不存在');chat.goal=args==='clear'?undefined:args;await this.persist();new Notice(args==='clear'?'已清除会话目标':'已设置本会话目标；后续提问会带入，不自动续跑');return {};
+    }
+    if(name==='remember') {if(!args)throw Error('用法：/remember 要记住的内容');const s=await this.memory().snapshot();await this.memory().update(s.revision,{add:args,source:`显式 /remember · 会话 ${this.chat?.id??''}`});new Notice('已保存到本库记忆；自动召回尚未启用');}
+    if(name==='memory')this.openMemory();
+    if(name==='rules')this.openMemory('rules');
+    if(name==='organize')await this.organizeMemory();
+    if(name==='new')this.newChat();
+    if(name==='connect')await this.connect();
+    if(name==='help')new Notice(commands.map(c=>`/${c.name} ${c.hint} — ${c.description}`).join('\n'),15000);
+    return {};
+  }
   get chat() { return this.state.chats.find(c => c.id === this.state.activeId); }
   persist() {
     const snapshot = JSON.parse(JSON.stringify(this.state));
@@ -99,8 +142,15 @@ export default class Deepsidian extends Plugin {
     return { ...env, model: s.provider && s.model ? { provider: s.provider, model: s.model } : configured.selected, choices: configured.choices };
   }
   async connect() {
+    await this.disconnecting;
+    if(this.disposed)throw Error('插件已关闭');
     this.lastUsed = Date.now();
     if (this.client?.connected) return this.client;
+    if(this.connecting)return this.connecting;
+    const job=this.connectRuntime();this.connecting=job;
+    try{return await job;}finally{if(this.connecting===job)this.connecting=undefined;}
+  }
+  private async connectRuntime() {
     const env = this.resolveEnvironment();
     this.runtimeVersion = env.versions.dsh!;
     if (!(this.app.vault.adapter instanceof FileSystemAdapter)) throw Error('此插件目前仅支持桌面端本地笔记库');
@@ -109,13 +159,20 @@ export default class Deepsidian extends Plugin {
     this.status = '正在连接本地 DSH…'; this.view?.refreshStatus();
     this.client = new DshClient({ packageRoot: env.root, nodePath: env.node, dshHome: env.home, runtimeHome: join(directory, '.runtime'), bridgePath: join(directory, 'bridge.mjs'), cwd: base, ...env.model, reasoningEffort: this.state.settings.reasoningEffort, maxTokens: this.state.settings.maxTokens, webSearch: this.state.settings.webSearch, webFetch: this.state.settings.webFetch },
       (name, args) => this.handleTool(name, args), (method, data) => this.onRuntime(method, data));
-    await this.client.start();
+    const client=this.client;
+    try {await client.start();if(this.disposed)throw Error('插件已关闭');}
+    catch(error){await client.stop();if(this.client===client)this.client=undefined;throw error;}
     this.selectedRoute = env.model;
     if (this.state.settings.checkUpdates) void this.update(false);
     this.status = `${env.model.model} · DSH ${env.versions.dsh}${Object.values(env.versions).every(v => v === '0.1.5-rc.2') ? '' : ' · 此版本未验证'}`;
-    this.view?.refreshStatus(); return this.client;
+    this.view?.refreshStatus(); return client;
   }
-  async disconnect() { await this.client?.stop(); this.client = undefined; this.status = '已断开，下次提问会重新连接'; this.view?.refreshStatus(); }
+  async disconnect() {
+    if(this.disconnecting)return this.disconnecting;
+    const job=(async()=>{await this.connecting?.catch(()=>{});await this.client?.stop();this.client=undefined;this.status='已断开，下次提问会重新连接';this.view?.refreshStatus();})();
+    this.disconnecting=job;
+    try{await job;}finally{if(this.disconnecting===job)this.disconnecting=undefined;}
+  }
   private onRuntime(method: string, data: any) {
     if (this.disposed) return;
     if (method === 'deepsidian.stream' && data.sessionId === this.chat?.id && this.activeMessage) {
@@ -152,7 +209,8 @@ export default class Deepsidian extends Plugin {
   }
   async ask(question: string, attachments: Attachment[] = []) {
     if (this.busy || !question.trim()) return;
-    const prompt = buildPrompt(question, '', this.source) + attachmentText(attachments);
+    const inputQuestion=this.chat?.goal?`本会话目标：${this.chat.goal}\n\n本次问题：${question}`:question;
+    const prompt = buildPrompt(inputQuestion, '', this.source) + attachmentText(attachments);
     if (prompt.length > 40000) { new Notice('本次上下文超过 40000 字符，请减少附件或选区。'); return; }
     const chat = this.chat!;
     this.busy = true; this.stopRequested = false; this.capture(); this.activeSource = { ...this.source };
@@ -167,7 +225,7 @@ export default class Deepsidian extends Plugin {
       const client = await this.connect();
       if (this.stopRequested) throw Error('已在发送模型请求前停止');
       answer.model = client.options.model;
-      const reason = await client.prompt(chat.id, buildPrompt(question, '', this.activeSource) + attachmentText(attachments), attachments.flatMap(f => f.image ? [f.image] : []));
+      const reason = await client.prompt(chat.id, buildPrompt(inputQuestion, '', this.activeSource) + attachmentText(attachments), attachments.flatMap(f => f.image ? [f.image] : []));
       answer.status = reason.kind === 'completed' ? '完成' : reason.kind === 'aborted' ? '已停止' : `已结束：${reason.kind}`;
       if (!answer.text) answer.text = answer.status === '完成' ? '模型未返回可显示文本。可检查模型配置或再次提问。' : '本次回答已停止。';
     } catch (error) { answer.status = this.stopRequested ? '已停止' : '失败'; answer.text += `\n\n${String(error)}`; }

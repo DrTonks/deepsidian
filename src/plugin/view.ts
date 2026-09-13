@@ -7,6 +7,8 @@ import { eventTitle, usageSummary, type TraceEntry } from './trace';
 import { renderTraceView } from './trace-view';
 import { SetupModal } from './setup';
 import { compareVersions } from './versions';
+import { commandMatches, parseCommand } from './commands';
+import { SessionHistory } from './history';
 
 export class LearningView extends ItemView {
   private mode: 'chat' | 'trace' = 'chat';
@@ -25,7 +27,10 @@ export class LearningView extends ItemView {
   private contextEl!: HTMLElement;
   private toolsEl!: HTMLElement;
   private input!: HTMLTextAreaElement;
-  private chats!: HTMLSelectElement;
+  private commandMenu!: HTMLElement;
+  private commandIndex=0;
+  private history?: SessionHistory;
+  private chatTitle!: HTMLElement;
   private sendButton!: HTMLButtonElement;
   private stopButton!: HTMLButtonElement;
   private answerEl?: HTMLElement;
@@ -43,12 +48,21 @@ export class LearningView extends ItemView {
     const root = this.contentEl; root.empty(); root.addClass('deepsidian');
     const header = root.createDiv('ds-header');
     const brand = header.createDiv('ds-brand'); setIcon(brand.createSpan('ds-brand-icon'), 'deepsidian-whale');
-    brand.createEl('strong', { text: 'Deepsidian' });
-    this.iconButton(header, 'settings-2', '连接与首次使用引导', () => new SetupModal(this.plugin, () => { this.renderModels(); this.renderMessages(); }).open());
-    this.iconButton(header, 'plus', '新对话', () => this.plugin.newChat());
-    const toolbar = root.createDiv('ds-toolbar ds-history');
-    this.chats = toolbar.createEl('select'); this.chats.ariaLabel = '历史对话';
-    this.chats.onchange = () => { if (this.plugin.busy) return; this.plugin.state.activeId = this.chats.value; void this.plugin.persist(); this.renderMessages(); };
+    this.chatTitle = brand.createEl('strong', { cls: 'ds-chat-title', text: '新对话' });
+    const actionsHeader = header.createDiv('ds-header-actions');
+    const historyButton = this.iconButton(actionsHeader, 'history', 'Session history', () => {});
+    this.history = new SessionHistory(header, historyButton,
+      () => ({ ...this.plugin.state, busy: this.plugin.busy || this.changing }),
+      async id => {
+        if (this.plugin.busy || this.changing) return;
+        const previous = this.plugin.state.activeId;
+        this.changing = true; this.plugin.state.activeId = id; this.refreshStatus();
+        try { await this.plugin.persist(); this.refreshChats(); this.renderMessages(); }
+        catch (error) { this.plugin.state.activeId = previous; new Notice(`切换会话保存失败：${String(error)}`); throw error; }
+        finally { this.changing = false; this.refreshStatus(); }
+      });
+    this.iconButton(actionsHeader, 'settings-2', '连接与首次使用引导', () => new SetupModal(this.plugin, () => { this.renderModels(); this.renderMessages(); }).open());
+    this.iconButton(actionsHeader, 'plus', '新对话', () => { if (!this.changing) this.plugin.newChat(); });
     const tabs = root.createDiv('ds-tabs');
     for (const [mode, label] of [['chat', '对话'], ['trace', '轨迹']] as const) {
       const button = tabs.createEl('button', { text: label, attr: { 'aria-pressed': String(this.mode === mode) } });
@@ -59,8 +73,20 @@ export class LearningView extends ItemView {
     const composer = root.createDiv('ds-composer');
     this.contextEl = composer.createDiv('ds-context');
     this.attachmentEl = composer.createDiv('ds-attachments');
+    this.commandMenu=composer.createDiv({cls:'ds-command-menu',attr:{role:'listbox','aria-label':'斜杠指令'}});this.commandMenu.hidden=true;
     this.input = composer.createEl('textarea', { attr: { placeholder: '从一个不理解的概念开始…', 'aria-label': '学习问题', rows: '3' } });
-    this.input.addEventListener('keydown', event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void this.send(); } });
+    this.input.addEventListener('input',()=>{this.commandIndex=0;this.renderCommands();});
+    this.input.addEventListener('keydown', event => {
+      if(event.isComposing)return;
+      const matches=commandMatches(this.input.value);
+      if(!this.commandMenu.hidden && matches.length){
+        if(event.key==='Escape'){event.preventDefault();this.commandMenu.hidden=true;this.input.removeAttribute('aria-activedescendant');return;}
+        if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();this.commandIndex=(this.commandIndex+(event.key==='ArrowDown'?1:-1)+matches.length)%matches.length;this.renderCommands();return;}
+        if((event.key==='Enter'&&!event.ctrlKey&&!event.metaKey)||event.key==='Tab'){event.preventDefault();this.chooseCommand(matches[this.commandIndex]!.name);return;}
+      }
+      if(event.key==='Enter'&&!event.shiftKey&&this.input.value.trim().startsWith('/')){event.preventDefault();void this.send();return;}
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void this.send(); }
+    });
     this.input.addEventListener('paste', event => { const files = Array.from(event.clipboardData?.files ?? []); if (files.length) { event.preventDefault(); void this.addFiles(files); } });
     const actions = composer.createDiv('ds-toolbar ds-compose-actions');
     const picker = composer.createEl('input', { attr: { type: 'file', accept: FILE_ACCEPT, multiple: '', hidden: '' } });
@@ -88,9 +114,21 @@ export class LearningView extends ItemView {
     this.statusEl = root.createDiv('ds-status');
     this.plugin.capture(); this.refreshChats(); this.refreshContext(); this.refreshStatus(); this.renderMessages(); this.renderModels();
   }
-  setQuestion(text: string) { this.input.value = text; this.input.focus(); this.refreshContext(); }
+  setQuestion(text: string) { this.input.value = text; this.input.focus(); this.refreshContext(); this.renderCommands(); }
+  private chooseCommand(name:string){this.input.value=`/${name} `;this.commandMenu.hidden=true;this.input.removeAttribute('aria-activedescendant');this.input.focus();}
+  private renderCommands(){
+    const matches=commandMatches(this.input.value);this.commandMenu.empty();this.commandMenu.hidden=!matches.length;
+    this.input.removeAttribute('aria-activedescendant');
+    matches.forEach((c,i)=>{
+      const row=this.commandMenu.createEl('button',{cls:'ds-command-option',attr:{role:'option','aria-selected':String(i===this.commandIndex),id:`ds-command-${i}`,type:'button'}});
+      row.createEl('strong',{text:`/${c.name} ${c.hint}`});row.createEl('small',{text:c.description});
+      row.onmousedown=e=>e.preventDefault();row.onclick=()=>this.chooseCommand(c.name);
+    });
+    if(matches.length)this.input.setAttribute('aria-activedescendant',`ds-command-${this.commandIndex}`);
+  }
   private iconButton(parent: HTMLElement, icon: string, label: string, action: () => void) {
-    const button = parent.createEl('button', { cls: 'ds-icon', attr: { 'aria-label': label, title: label } });
+    // Obsidian uses aria-label for its tooltip; native title produced a second one.
+    const button = parent.createEl('button', { cls: 'ds-icon', attr: { 'aria-label': label } });
     setIcon(button, icon); button.onclick = action; return button;
   }
   private async addFiles(files: { name: string; size: number; arrayBuffer(): Promise<ArrayBuffer> }[]) {
@@ -142,20 +180,30 @@ export class LearningView extends ItemView {
     finally { this.changing = false; this.refreshStatus(); }
   }
   private async send() {
-    const text = this.input.value.trim() || (this.attachments.length ? '请结合这些资料解释我需要理解的重点。' : '');
+    let text = this.input.value.trim() || (this.attachments.length ? '请结合这些资料解释我需要理解的重点。' : '');
     if (!text || this.plugin.busy || this.changing) return;
+    if(text.startsWith('/')){
+      if(this.attachments.length && parseCommand(text)?.name!=='plan'){new Notice('此指令不接收附件，请先移除附件；草稿已保留');return;}
+      this.changing=true;this.refreshStatus();
+      try {
+        const result=await this.plugin.runCommand(text);
+        if(!result.question){this.input.value='';this.commandMenu.hidden=true;return;}
+        text=result.question;
+      } catch(error){new Notice(String(error));return;}
+      finally{this.changing=false;this.refreshStatus();}
+    }
     this.plugin.capture();
-    if ((buildPrompt(text, '', this.plugin.source) + attachmentText(this.attachments)).length > 40000) { new Notice('上下文超过 40000 字符，请减少附件或选区。'); return; }
+    const promptQuestion=this.plugin.chat?.goal?`本会话目标：${this.plugin.chat.goal}\n\n本次问题：${text}`:text;
+    if ((buildPrompt(promptQuestion, '', this.plugin.source) + attachmentText(this.attachments)).length > 40000) { new Notice('上下文超过 40000 字符，请减少附件或选区。'); return; }
     let env; try { env = this.plugin.resolveEnvironment(); } catch { new SetupModal(this.plugin).open(); return; }
     if (this.attachments.some(f => f.image) && !this.plugin.models.find(m => m.provider === env.model.provider && m.model === env.model.model)?.inputModalities?.includes('image')) { new Notice('当前模型未声明图片输入能力，请刷新列表并选择标注“图片”的模型。附件已保留。'); return; }
-    const files = this.attachments; this.attachments = []; this.input.value = ''; this.renderAttachments();
+    const files = this.attachments; this.attachments = []; this.input.value = ''; this.commandMenu.hidden=true;this.renderAttachments();
     await this.plugin.ask(text, files);
     if (this.plugin.chat?.messages.at(-1)?.status === '失败') { this.attachments.push(...files); this.renderAttachments(); }
   }
   refreshChats() {
-    if (!this.chats) return;
-    this.chats.empty(); for (const chat of this.plugin.state.chats) this.chats.createEl('option', { text: chat.title, value: chat.id });
-    this.chats.value = this.plugin.state.activeId; this.chats.disabled = this.plugin.busy;
+    if (this.chatTitle) this.chatTitle.setText(this.plugin.chat?.title || '新对话');
+    this.history?.refresh();
   }
   refreshContext() {
     if (!this.contextEl) return;
@@ -165,7 +213,7 @@ export class LearningView extends ItemView {
     const file = this.iconButton(chip, 'file-text', this.plugin.source.path, () => {
       const detail = this.contextEl.querySelector('pre'); if (detail) detail.toggleAttribute('hidden');
     });
-    file.title = '查看本次编辑上下文';
+    file.setAttribute('aria-label',`查看本次编辑上下文：${this.plugin.source.path}`);
     chip.createSpan({ text: this.plugin.source.path.split('/').pop() ?? this.plugin.source.path, attr: { title: this.plugin.source.path } });
     this.iconButton(chip, 'x', '移除当前文件', () => { this.plugin.includeContext = false; this.plugin.source = { ...EMPTY_CONTEXT }; this.refreshContext(); });
     this.contextEl.createEl('pre', { text: this.plugin.source.selection || this.plugin.source.nearby, attr: { hidden: '' } });
@@ -176,7 +224,7 @@ export class LearningView extends ItemView {
     this.statusEl.setText(this.plugin.busy ? this.plugin.stopRequested ? '正在停止当前回答…' : 'DSH 正在处理 · 可随时停止' : this.plugin.status);
     if (update?.error) this.statusEl.createEl('span', { text: ' · 更新检查暂不可用' });
     if (update?.newest && this.plugin.runtimeVersion && compareVersions(update.newest, this.plugin.runtimeVersion) > 0) this.statusEl.createEl('span', { text: ` · 可更新 DSH ${update.newest}` });
-    this.sendButton.disabled = this.plugin.busy || this.changing; this.sendButton.hidden = this.plugin.busy; this.stopButton.hidden = !this.plugin.busy; for (const control of [this.modelSelect, this.effortSelect, this.tokenSelect]) if (control) control.disabled = this.plugin.busy || this.changing; this.stopButton.disabled = !this.plugin.busy || this.plugin.stopRequested; this.chats.disabled = this.plugin.busy;
+    this.sendButton.disabled = this.plugin.busy || this.changing; this.sendButton.hidden = this.plugin.busy; this.stopButton.hidden = !this.plugin.busy; for (const control of [this.modelSelect, this.effortSelect, this.tokenSelect]) if (control) control.disabled = this.plugin.busy || this.changing; this.stopButton.disabled = !this.plugin.busy || this.plugin.stopRequested; this.history?.refresh();
   }
   refreshTools() { if (!this.toolsEl) return; this.toolsEl.empty(); this.toolsEl.hidden = true; this.toolsEl.createEl('summary', { text: `运行记录（${this.plugin.toolEvents.length}）` }); this.toolsEl.createEl('pre', { text: this.plugin.toolEvents.join('\n') }); }
   renderMessages() {
@@ -250,7 +298,7 @@ export class LearningView extends ItemView {
     try { target.empty(); await MarkdownRenderer.render(this.app, message.text, target, '', this.markdown); if (follow) this.messages.scrollTop = this.messages.scrollHeight; }
     finally { this.rendering = false; if (this.renderAgain) { this.renderAgain = false; this.scheduleAnswer(); } }
   }
-  async onClose() { this.closed = true; clearTimeout(this.timer); this.plugin.detach(this); this.markdown.unload(); }
+  async onClose() { this.closed = true; this.history?.dispose(); clearTimeout(this.timer); this.plugin.detach(this); this.markdown.unload(); }
 }
 
 class VaultPicker extends FuzzySuggestModal<TFile> {
