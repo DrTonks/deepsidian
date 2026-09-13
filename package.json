@@ -1,0 +1,29 @@
+{
+  "name": "deepsidian",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && node scripts/build.mjs",
+    "install:dev": "node scripts/install.mjs",
+    "doctor": "node scripts/doctor.ts",
+    "test": "node --test tests/core.test.ts tests/trace.test.ts",
+    "test:integration": "node --test tests/runtime.test.ts tests/web.test.ts",
+    "check": "npm run typecheck && npm test && npm run build",
+    "live": "node scripts/live.ts",
+    "preview": "node scripts/preview.mjs",
+    "package:source": "node scripts/package-source.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2",
+    "esbuild": "0.28.2",
+    "obsidian": "1.13.1",
+    "typescript": "7.0.2"
+  },
+  "version": "0.3.1",
+  "description": "An Obsidian sidebar powered by a local DeepSeek Harness runtime.",
+  "license": "MIT"
+}

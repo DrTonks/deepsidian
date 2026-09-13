@@ -1,0 +1,9 @@
+{
+  "id": "deepsidian",
+  "name": "Deepsidian",
+  "version": "0.3.1",
+  "minAppVersion": "1.7.2",
+  "description": "在 Obsidian 中连接本地 DeepSeek Harness，结合笔记、附件与可选网络工具进行对话。",
+  "author": "Deepsidian contributors",
+  "isDesktopOnly": true
+}

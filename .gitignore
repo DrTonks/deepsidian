@@ -1,0 +1,15 @@
+.runs/
+node_modules/
+.env
+dist/
+.env.*
+!.env.example
+.preview/
+.runtime/
+.obsidian/
+data.json
+*.log
+coverage/
+*.zip
+.DS_Store
+Thumbs.db

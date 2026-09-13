@@ -1,0 +1,10 @@
+import { resolve, join } from 'node:path';
+import { mkdir, copyFile, access } from 'node:fs/promises';
+const target = process.argv[2] ?? process.env.OBSIDIAN_VAULT;
+if (!target) throw Error('Specify an existing vault: npm run install:dev -- "path/to/vault" (or set OBSIDIAN_VAULT).');
+const vault = resolve(target);
+await access(join(vault, '.obsidian'));
+const destination = join(vault, '.obsidian/plugins/deepsidian');
+await mkdir(destination, { recursive: true });
+for (const file of ['main.js', 'manifest.json', 'styles.css', 'bridge.mjs', 'THIRD-PARTY-NOTICES.txt']) await copyFile(join('dist', file), join(destination, file));
+console.log(`Installed ${destination}. Enable Deepsidian in Obsidian community plugins.`);

@@ -1,0 +1,115 @@
+.deepsidian { display:flex; flex-direction:column; gap:8px; height:100%; min-width:0; padding:14px!important; background:var(--background-primary); }
+.deepsidian .ds-header,.deepsidian .ds-brand { display:flex; align-items:center; gap:8px; }
+.deepsidian .ds-header { justify-content:space-between; }
+.deepsidian .ds-brand { font-size:15px; letter-spacing:-.3px; }
+.deepsidian .ds-brand-icon { color:var(--text-normal); display:flex; }
+.deepsidian .ds-icon { padding:5px; width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center; box-shadow:none; flex-shrink:0; }
+.deepsidian .ds-icon svg { width:16px; height:16px; }
+.deepsidian [hidden] { display:none!important; }
+.deepsidian .ds-muted,.deepsidian .ds-status { color:var(--text-muted); font-size:11px; line-height:1.5; }
+.deepsidian .ds-toolbar { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.deepsidian .ds-history { padding-bottom:10px; border-bottom:1px solid var(--background-modifier-border); }
+.deepsidian .ds-history > select { flex:1; width:100px; box-shadow:none; border:0; background:transparent; font-size:12px; }
+.deepsidian .ds-background { position:relative; }
+.deepsidian .ds-background textarea { position:absolute; z-index:5; right:0; width:240px; height:140px; padding:10px; box-shadow:var(--shadow-s); }
+.deepsidian textarea { width:100%; resize:vertical; }
+.deepsidian details { font-size:11px; flex-shrink:0; }
+.deepsidian summary { cursor:pointer; color:var(--text-muted); overflow-wrap:anywhere; }
+.deepsidian pre { white-space:pre-wrap; overflow:auto; max-height:180px; font-size:12px; }
+.deepsidian .ds-messages { flex:1; min-height:80px; overflow-y:auto; display:flex; flex-direction:column; gap:24px; padding:12px 2px; scrollbar-gutter:stable; }
+.deepsidian .ds-message { overflow-wrap:anywhere; padding:2px 6px; }
+.deepsidian .ds-user { padding:10px 14px; border-radius:18px; background:var(--background-secondary); margin-left:22px; }
+.deepsidian .ds-label { font-size:10px; color:var(--text-faint); margin-bottom:8px; }
+.deepsidian .ds-body { font-size:var(--font-text-size, 14px); line-height:1.75; }
+.deepsidian .ds-user .ds-body { white-space:pre-wrap; font-size:13px; }
+.deepsidian .ds-body p:first-child { margin-top:0; }
+.deepsidian .ds-body p:last-child { margin-bottom:0; }
+.deepsidian .ds-body pre { max-height:340px; }
+.deepsidian .ds-body table { display:block; overflow:auto; }
+.deepsidian .ds-toolbar button { font-size:11px; }
+.deepsidian .ds-source { font-size:10px; max-width:100%; overflow:hidden; text-overflow:ellipsis; margin-bottom:8px; box-shadow:none; }
+.deepsidian .ds-empty { margin:auto 0; padding:30px 4px; color:var(--text-muted); text-align:center; line-height:1.8; }
+.deepsidian .ds-empty h2 { font-size:18px; font-weight:550; letter-spacing:-.4px; color:var(--text-normal); margin:12px 0 6px; }
+.deepsidian .ds-empty p { font-size:12px; }
+.deepsidian .ds-empty small { font-size:11px; color:var(--text-faint); }
+.deepsidian .ds-empty-icon svg { width:32px; height:32px; color:var(--text-muted); }
+.deepsidian .ds-composer { flex-shrink:0; border:1px solid var(--background-modifier-border); border-radius:18px; padding:12px; background:var(--background-secondary); box-shadow:none; }
+.deepsidian .ds-composer:focus-within { border-color:var(--background-modifier-border-focus); }
+.deepsidian .ds-composer > textarea { border:0; background:transparent; box-shadow:none; outline:none; min-height:80px; max-height:220px; padding:10px 2px; font-size:13px; resize:vertical; }
+.deepsidian .ds-compose-actions { gap:3px; }
+.deepsidian .ds-model { flex:1; min-width:75px; width:90px; font-size:11px; border:0; box-shadow:none; background:transparent; text-overflow:ellipsis; }
+.deepsidian .ds-context { padding:5px 7px; background:var(--background-secondary); border-radius:6px; }
+.deepsidian .ds-context pre { font-size:11px; }
+.deepsidian .ds-parameters { margin-top:8px; border-top:1px solid var(--background-modifier-border); padding-top:7px; }
+.deepsidian .ds-parameters .ds-toolbar { margin:8px 0; }
+.deepsidian .ds-parameters select { font-size:11px; max-width:140px; }
+.deepsidian .ds-attachments { display:flex; flex-wrap:wrap; gap:5px; }
+.deepsidian .ds-attachment { display:flex; gap:5px; align-items:center; max-width:100%; border:1px solid var(--background-modifier-border); border-radius:6px; padding:3px 5px; margin-top:6px; }
+.deepsidian .ds-attachment span { font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.deepsidian .ds-attachment img { width:36px; height:36px; object-fit:cover; border-radius:3px; }
+.deepsidian .ds-status { padding:0 3px; font-size:10px; }
+
+.deepsidian .ds-tabs { display:flex; gap:20px; border-bottom:1px solid var(--background-modifier-border); }
+.deepsidian .ds-tabs button { border:0; border-bottom:2px solid transparent; border-radius:0; padding:6px 2px 9px; box-shadow:none; background:transparent; color:var(--text-muted); }
+.deepsidian .ds-tabs button[aria-pressed="true"] { color:var(--interactive-accent); border-bottom-color:var(--interactive-accent); }
+.deepsidian .ds-work { padding:0 0 12px; margin-bottom:14px; border-bottom:1px solid var(--background-modifier-border); }
+.deepsidian .ds-work > summary { font-size:12px; }
+.deepsidian .ds-work[open] > summary { margin-bottom:12px; }
+.deepsidian .ds-reasoning { margin:8px 0 12px; padding-left:10px; border-left:2px solid var(--background-modifier-border); }
+.deepsidian .ds-reasoning pre { max-height:400px; line-height:1.65; color:var(--text-muted); }
+.deepsidian .ds-event { padding:7px 0 7px 10px; border-left:1px solid var(--background-modifier-border); }
+.deepsidian .ds-event pre,.deepsidian .ds-system pre { max-height:400px; padding:10px; background:var(--background-secondary); border-radius:6px; }
+.deepsidian .ds-system { margin-bottom:12px; }
+.deepsidian .ds-brand-icon svg { width:26px; height:26px; }
+.deepsidian .ds-empty-icon svg { width:42px; height:42px; }
+.deepsidian .ds-body { user-select:text; -webkit-user-select:text; }
+.deepsidian .ds-usage { margin-top:14px; }
+.deepsidian .ds-user { align-self:flex-end; max-width:calc(100% - 18px); }
+.deepsidian .ds-assistant { width:100%; }
+.deepsidian .ds-icon { background:transparent; }
+.deepsidian .ds-icon:hover { background:var(--background-modifier-hover); }
+.deepsidian .ds-compose-actions > .mod-cta { border-radius:50%; background:var(--interactive-accent); color:var(--text-on-accent); }
+.deepsidian .ds-context { background:var(--background-primary); }
+.deepsidian .ds-messages > * { flex-shrink:0; min-width:0; }
+
+.deepsidian .ds-context { padding:0; background:transparent; }
+.deepsidian .ds-file-chip { display:inline-flex; align-items:center; gap:3px; max-width:100%; color:var(--text-muted); }
+.deepsidian .ds-file-chip > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
+.deepsidian .ds-onboarding { padding:18px; border:1px solid var(--background-modifier-border); border-radius:12px; font-size:13px; }
+.deepsidian .ds-onboarding p { color:var(--text-muted); line-height:1.6; }
+.ds-setup-step { margin:20px 0; }
+.ds-setup-step h3 { font-size:15px; margin:0 0 8px; }
+.ds-setup-step p,.ds-setup-status { font-size:13px; color:var(--text-muted); line-height:1.6; }
+.ds-setup-step pre { user-select:text; white-space:pre-wrap; padding:10px; background:var(--background-secondary); border-radius:8px; }
+.deepsidian .ds-trace { width:100%; font-size:12px; }
+.deepsidian .ds-trace-toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:4px 0 10px; }
+.deepsidian .ds-trace-modes { display:flex; gap:4px; }
+.deepsidian .ds-trace-modes button { box-shadow:none; background:transparent; padding:4px 8px; font-size:11px; }
+.deepsidian .ds-trace-modes button[aria-pressed="true"] { color:var(--interactive-accent); background:var(--background-secondary); }
+.deepsidian .ds-trace-search { margin-left:auto; min-width:90px; width:110px; font-size:11px; }
+.deepsidian .ds-timeline { padding:10px 0; margin-bottom:10px; border-block:1px solid var(--background-modifier-border); }
+.deepsidian .ds-timeline-lane { display:flex; align-items:center; height:16px; gap:5px; }
+.deepsidian .ds-lane-label { width:25px; flex-shrink:0; font-size:10px; color:var(--text-muted); }
+.deepsidian .ds-lane-track { position:relative; flex:1; height:9px; overflow:hidden; }
+.deepsidian .ds-span { position:absolute; top:0; height:9px; min-width:2px; border-radius:2px; }
+.deepsidian .ds-span-input { background:var(--text-muted); }
+.deepsidian .ds-span-model { background:#638dce; }
+.deepsidian .ds-span-tool { background:#9a78bc; }
+.deepsidian .ds-span-open { opacity:.6; border:1px dashed currentColor; }
+.deepsidian .ds-trace-row { border-bottom:1px solid var(--background-modifier-border); }
+.deepsidian .ds-trace-row-summary { display:flex; align-items:center; gap:8px; padding:9px 0; list-style:none; }
+.deepsidian .ds-trace-row-summary::after { content:'›'; margin-left:auto; }
+.deepsidian .ds-trace-row[open] > summary::after { transform:rotate(90deg); }
+.deepsidian .ds-trace-time { font-size:10px; color:var(--text-faint); width:42px; flex-shrink:0; }
+.deepsidian .ds-role { font-size:11px; font-weight:600; padding:2px 5px; border-radius:4px; flex-shrink:0; }
+.deepsidian .ds-role-system,.deepsidian .ds-role-event { background:var(--background-secondary); color:var(--text-muted); }
+.deepsidian .ds-role-user { color:#7198dd; background:#7198dd20; }
+.deepsidian .ds-role-assistant,.deepsidian .ds-role-tool { color:#a387c9; background:#a387c920; }
+.deepsidian .ds-role-context { color:#54ac85; background:#54ac8520; }
+.deepsidian .ds-trace-preview { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:var(--text-normal); min-width:0; }
+.deepsidian .ds-trace-detail { margin:0 0 12px 10px; padding:10px; border-radius:6px; background:var(--background-secondary); max-height:400px; }
+.deepsidian .ds-trace-footer { color:var(--text-faint); font-size:10px; line-height:1.5; margin-top:14px; }
+.deepsidian .ds-round-heading { color:var(--text-muted); font-size:11px; margin:18px 0 8px; }
+
+.deepsidian .ds-header { justify-content:flex-start; }
+.deepsidian .ds-brand { margin-right:auto; }
