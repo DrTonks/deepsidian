@@ -152,7 +152,7 @@ export default class Deepsidian extends Plugin {
   }
   async ask(question: string, attachments: Attachment[] = []) {
     if (this.busy || !question.trim()) return;
-    const prompt = buildPrompt(question, this.state.settings.background, this.source) + attachmentText(attachments);
+    const prompt = buildPrompt(question, '', this.source) + attachmentText(attachments);
     if (prompt.length > 40000) { new Notice('本次上下文超过 40000 字符，请减少附件或选区。'); return; }
     const chat = this.chat!;
     this.busy = true; this.stopRequested = false; this.capture(); this.activeSource = { ...this.source };
@@ -167,7 +167,7 @@ export default class Deepsidian extends Plugin {
       const client = await this.connect();
       if (this.stopRequested) throw Error('已在发送模型请求前停止');
       answer.model = client.options.model;
-      const reason = await client.prompt(chat.id, buildPrompt(question, this.state.settings.background, this.activeSource) + attachmentText(attachments), attachments.flatMap(f => f.image ? [f.image] : []));
+      const reason = await client.prompt(chat.id, buildPrompt(question, '', this.activeSource) + attachmentText(attachments), attachments.flatMap(f => f.image ? [f.image] : []));
       answer.status = reason.kind === 'completed' ? '完成' : reason.kind === 'aborted' ? '已停止' : `已结束：${reason.kind}`;
       if (!answer.text) answer.text = answer.status === '完成' ? '模型未返回可显示文本。可检查模型配置或再次提问。' : '本次回答已停止。';
     } catch (error) { answer.status = this.stopRequested ? '已停止' : '失败'; answer.text += `\n\n${String(error)}`; }

@@ -7,7 +7,7 @@ export class DeepsidianSettings extends PluginSettingTab {
   constructor(readonly plugin: Deepsidian) { super(plugin.app, plugin); }
   display() {
     const el = this.containerEl; el.empty(); el.createEl('h2', { text: 'Deepsidian 学习助手' });
-    el.createEl('p', { text: '复用本机 DSH 的模型与凭证。选区、学习背景和工具读取内容会发送给你配置的模型供应商。工具可检索笔记、搜索网络和读取网页，网络能力可分别关闭。' });
+    el.createEl('p', { text: '复用本机 DSH 的模型与凭证。选区、对话和工具读取内容会发送给你配置的模型供应商。工具可检索笔记、搜索网络和读取网页，网络能力可分别关闭。' });
     new Setting(el).setName('首次使用与连接诊断').addButton(b => b.setButtonText('打开引导').onClick(() => new SetupModal(this.plugin).open()));
     for (const [key, title, desc] of [['webSearch', '网络搜索', 'DSH 原生 DeepSeek 搜索，会将查询发送到搜索供应商并产生额外模型请求；新安装默认开启。'], ['webFetch', '网页读取', 'DSH 原生匿名 HTTP 网页读取，仅允许公网 HTTP(S)，新安装默认开启。']] as const) {
       new Setting(el).setName(title).setDesc(desc).addToggle(t => t.setValue(this.plugin.state.settings[key]).onChange(async value => {

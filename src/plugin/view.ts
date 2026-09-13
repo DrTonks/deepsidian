@@ -49,10 +49,6 @@ export class LearningView extends ItemView {
     const toolbar = root.createDiv('ds-toolbar ds-history');
     this.chats = toolbar.createEl('select'); this.chats.ariaLabel = '历史对话';
     this.chats.onchange = () => { if (this.plugin.busy) return; this.plugin.state.activeId = this.chats.value; void this.plugin.persist(); this.renderMessages(); };
-    const background = toolbar.createEl('details', { cls: 'ds-background' }); background.createEl('summary', { text: '学习背景' });
-    const area = background.createEl('textarea', { attr: { placeholder: '熟悉什么？正在学什么？希望解释到什么深度？', 'aria-label': '学习背景' } });
-    area.value = this.plugin.state.settings.background;
-    area.onchange = () => { this.plugin.state.settings.background = area.value.slice(0,6000); void this.plugin.persist(); };
     const tabs = root.createDiv('ds-tabs');
     for (const [mode, label] of [['chat', '对话'], ['trace', '轨迹']] as const) {
       const button = tabs.createEl('button', { text: label, attr: { 'aria-pressed': String(this.mode === mode) } });
@@ -149,7 +145,7 @@ export class LearningView extends ItemView {
     const text = this.input.value.trim() || (this.attachments.length ? '请结合这些资料解释我需要理解的重点。' : '');
     if (!text || this.plugin.busy || this.changing) return;
     this.plugin.capture();
-    if ((buildPrompt(text, this.plugin.state.settings.background, this.plugin.source) + attachmentText(this.attachments)).length > 40000) { new Notice('上下文超过 40000 字符，请减少附件或选区。'); return; }
+    if ((buildPrompt(text, '', this.plugin.source) + attachmentText(this.attachments)).length > 40000) { new Notice('上下文超过 40000 字符，请减少附件或选区。'); return; }
     let env; try { env = this.plugin.resolveEnvironment(); } catch { new SetupModal(this.plugin).open(); return; }
     if (this.attachments.some(f => f.image) && !this.plugin.models.find(m => m.provider === env.model.provider && m.model === env.model.model)?.inputModalities?.includes('image')) { new Notice('当前模型未声明图片输入能力，请刷新列表并选择标注“图片”的模型。附件已保留。'); return; }
     const files = this.attachments; this.attachments = []; this.input.value = ''; this.renderAttachments();
@@ -196,7 +192,7 @@ export class LearningView extends ItemView {
     }
     if (this.mode === 'trace') { this.renderTrace(); return; }
     if (chat?.systemPrompt) { const system = this.messages.createEl('details', { cls: 'ds-system' }); system.createEl('summary', { text: '系统提示词 · DSH 实际组装结果' }); system.createEl('pre', { text: chat.systemPrompt }); }
-    if (!chat?.messages.length) { const empty = this.messages.createDiv('ds-empty'); setIcon(empty.createDiv('ds-empty-icon'), 'deepsidian-whale'); empty.createEl('h2', { text: '今天想理解什么？' }); empty.createEl('p', { text: '结合你的笔记与学习背景，逐步展开解释。' }); empty.createEl('small', { text: '选中术语带入上下文，或附上资料开始提问。' }); return; }
+    if (!chat?.messages.length) { const empty = this.messages.createDiv('ds-empty'); setIcon(empty.createDiv('ds-empty-icon'), 'deepsidian-whale'); empty.createEl('h2', { text: '今天想理解什么？' }); empty.createEl('p', { text: '结合当前笔记，逐步展开解释。' }); empty.createEl('small', { text: '选中术语带入上下文，或附上资料开始提问。' }); return; }
     for (const message of chat.messages) {
       const card = this.messages.createDiv(`ds-message ds-${message.role}`);
       card.createDiv({ cls: 'ds-label', text: message.role === 'user' ? '你' : `Deepsidian${message.model ? ' · ' + message.model : ''}${message.status ? ' · ' + message.status : ''}` });

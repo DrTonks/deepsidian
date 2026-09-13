@@ -33,6 +33,8 @@ Web 工具由 DSH 原生插件注册和执行，不经 Obsidian handleTool。只
 
 ## 数据兼容
 
+后续同库记忆的文件格式、宿主接口、DSH 桥接、事务恢复和闲时任务隔离见 [长期记忆技术设计](MEMORY-DESIGN.md)。该设计尚未实现，不能按目前 main.handleTool 的前台 busy 状态直接接入后台整理。
+
 `types.ts` 是前端持久状态约定。新增字段须可选或提供默认值；不要在普通升级时删除 `.runtime` 或重置聊天。`trace.ts` 支持补投影旧版的合法 JSON 快照；截断或不存在的数据不伪造恢复。当前数据尚未分页，不应把 UI 快照作为 DSH 完整日志使用。
 
 图片先经 DSH admitEncodedImages 校验、规范化、持久化，再进入消息引用。附件 base64 仅用于传输和发送前预览，不直接堆进 data.json。UI 名称记录与运行时完整内容分开。

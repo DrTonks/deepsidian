@@ -10,8 +10,6 @@
 .deepsidian .ds-toolbar { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
 .deepsidian .ds-history { padding-bottom:10px; border-bottom:1px solid var(--background-modifier-border); }
 .deepsidian .ds-history > select { flex:1; width:100px; box-shadow:none; border:0; background:transparent; font-size:12px; }
-.deepsidian .ds-background { position:relative; }
-.deepsidian .ds-background textarea { position:absolute; z-index:5; right:0; width:240px; height:140px; padding:10px; box-shadow:var(--shadow-s); }
 .deepsidian textarea { width:100%; resize:vertical; }
 .deepsidian details { font-size:11px; flex-shrink:0; }
 .deepsidian summary { cursor:pointer; color:var(--text-muted); overflow-wrap:anywhere; }

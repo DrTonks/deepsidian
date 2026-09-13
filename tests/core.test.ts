@@ -14,10 +14,11 @@ test('note excerpts preserve line numbers and are bounded', () => {
   assert.match(result.content, /^12: line 12/); assert.equal(result.content.split('\n').length, 100);
   assert.throws(() => excerpt('a', 2));
 });
-test('prompt embeds an immutable source snapshot and bounds background', () => {
+test('prompt freezes the source and never injects retired background', () => {
   const context = {path:'a.md', selection:'selected', nearby:'nearby'};
-  const prompt = buildPrompt('why?', 'a'.repeat(10000), context); context.selection='changed';
+  const prompt = buildPrompt('why?', 'LEGACY_BACKGROUND_DO_NOT_SEND'.repeat(1000), context); context.selection='changed';
   assert.match(prompt, /selected/); assert.doesNotMatch(prompt, /changed/); assert.ok(prompt.length < 8000);
+  assert.doesNotMatch(prompt, /LEGACY_BACKGROUND_DO_NOT_SEND|学习背景（由用户填写/);
 });
 test('prereleases sort numerically and precede final releases', () => {
   const list = ['0.1.5-rc.2','0.1.5','0.1.5-rc.10','0.1.5-alpha.2','0.1.4'];
