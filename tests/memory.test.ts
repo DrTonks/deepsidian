@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,readFile,writeFile,access} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,access,symlink,unlink} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {MemoryStore,encodeEntries,decodeEntries} from '../src/plugin/memory/store.ts';
@@ -44,4 +44,51 @@ test('slash matching is anchored and preserves multiline arguments',()=>{
   assert.deepEqual(commandMatches('/rem').map(c=>c.name),['remember']);
   assert.equal(commandMatches('/remember text').length,0);
   assert.equal(commandMatches('/').length,9);
+});
+
+test('memory manager preserves other drafts across saves, tabs and refreshes',async()=>{
+  const {build}=await import('esbuild');const {pathToFileURL}=await import('node:url');
+  const {store,root}=await fixture();let snapshot=await store.snapshot();
+  await store.update(snapshot.revision,{add:'original'});
+  const outfile=join(root,'modal.mjs');
+  await build({entryPoints:['src/plugin/memory/modal.ts'],outfile,bundle:true,platform:'node',format:'esm',alias:{obsidian:resolve('tests/host-obsidian.ts')}});
+  const {MemoryModal}=await import(pathToFileURL(outfile).href);
+  class Element {
+    children:Element[]=[];value='';text='';label='';onclick?:()=>unknown;oninput?:()=>unknown;
+    empty(){this.children=[];}
+    createEl(_tag:string,options:any={}){const e=new Element();e.text=options.text??'';e.label=options.attr?.['aria-label']??'';this.children.push(e);return e;}
+    createDiv(){return this.createEl('div');}
+    all():Element[]{return this.children.flatMap(e=>[e,...e.all()]);}
+  }
+  const modal=new MemoryModal({app:{},memory:()=>store,chat:{id:'test'}});
+  const content=new Element();modal.contentEl=content;
+  await modal.refresh();
+  const edit=(label:string,value:string)=>{const e=content.all().find(e=>e.label===label)!;e.value=value;e.oninput!();};
+  edit('新记忆','new draft');edit('记忆内容','entry draft');
+  content.all().find(e=>e.text==='编辑规则')!.onclick!();
+  edit('记忆整理规则','rules draft');
+  content.all().find(e=>e.text==='管理记忆')!.onclick!();
+  assert.equal(content.all().find(e=>e.label==='新记忆')!.value,'new draft');
+  await modal.action(()=>store.update(modal.snapshot.revision,{add:'new draft'}),{key:'add',value:'new draft'});
+  assert.equal(content.all().find(e=>e.label==='新记忆')!.value,'');
+  assert.equal(content.all().find(e=>e.label==='记忆内容')!.value,'entry draft');
+  content.all().find(e=>e.text==='编辑规则')!.onclick!();
+  assert.equal(content.all().find(e=>e.label==='记忆整理规则')!.value,'rules draft');
+  // Text entered during an asynchronous save must also remain available.
+  let release!:()=>void;
+  const saving=modal.action(()=>new Promise<void>(r=>release=r),{key:'rules',value:'rules draft'});
+  edit('记忆整理规则','newer draft');release();await saving;
+  assert.equal(content.all().find(e=>e.label==='记忆整理规则')!.value,'newer draft');
+});
+
+
+test('memory refuses symlinked topic files without changing the target',async(t)=>{
+  const {store,root}=await fixture();await store.snapshot();
+  const topic=join(root,'topics/general.md'),outside=join(root,'external.md');
+  await writeFile(outside,'external content');await unlink(topic);
+  try {await symlink(outside,topic,'file');}
+  catch(error:any){if(error.code==='EPERM'||error.code==='EACCES'){t.skip('Symlinks require privileges on this host');return;}throw error;}
+  await assert.rejects(()=>store.snapshot(),/符号链接/);
+  assert.equal(await readFile(outside,'utf8'),'external content');
+  await assert.rejects(()=>access(join(root,'writer.lock')));
 });

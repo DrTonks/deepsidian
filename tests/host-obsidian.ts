@@ -9,6 +9,7 @@ export class Plugin {
 }
 export class Component {}
 export class ItemView {}
+export class Scope { constructor(_parent?: unknown) {} register(..._args: unknown[]) {} }
 export class Modal {}
 export class PluginSettingTab {}
 export class WorkspaceLeaf {}

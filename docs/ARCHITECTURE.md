@@ -60,7 +60,7 @@ Web 工具由 DSH 原生插件注册和执行，不经 Obsidian handleTool。只
 
 ## 版本与发布
 
-已验证 DSH 0.1.5-rc.2。上游 developer preview 可能破坏接口；升级先核对包版本与新增能力，在分支运行集成测试，再更新 setup.ts、README 和 CI 中的兼容版本。不要只依赖 SDK initialize 中的 serverInfo.version。
+已验证 DSH 0.1.5-rc.2。上游 developer preview 可能破坏接口；升级先核对包版本与新增能力，在分支运行集成测试，再更新 versions.ts 中的 TESTED_DSH 和 README；引导、诊断与 CI 共用该版本。不要只依赖 SDK initialize 中的 serverInfo.version。
 
 发布前：运行 check 和 test:integration；构建；用明确 vault 参数安装；重载实机检查；更新 manifest/package 版本、截图和 README；确认 LICENSE 与第三方声明。当前脚本不执行 GitHub 发布、不自动安装或更新 DSH。
 

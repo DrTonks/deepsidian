@@ -25,6 +25,8 @@ export class ItemView extends Component {
   constructor(leaf:any){super();this.app=leaf.app;this.contentEl=leaf.container;}
 }
 export class WorkspaceLeaf {}
+// Preview uses the view's DOM fallback; real Obsidian owns scope dispatch.
+export class Scope { constructor(_parent?: unknown) {} register(..._args: unknown[]) {} }
 export class MarkdownView {}
 export class TFile {}
 export class Notice {constructor(message:string){const toast=create(document.body,'div',{cls:'preview-notice',text:message});setTimeout(()=>toast.remove(),4000);}}

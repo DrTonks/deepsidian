@@ -10,7 +10,7 @@
     "build": "npm run typecheck && node scripts/build.mjs",
     "install:dev": "node scripts/install.mjs",
     "doctor": "node scripts/doctor.ts",
-    "test": "node --test tests/core.test.ts tests/trace.test.ts tests/memory.test.ts tests/host.test.ts",
+    "test": "node --test tests/core.test.ts tests/trace.test.ts tests/memory.test.ts tests/host.test.ts tests/discovery.test.ts",
     "test:integration": "node --test tests/runtime.test.ts tests/web.test.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "live": "node scripts/live.ts",

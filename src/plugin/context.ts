@@ -8,7 +8,7 @@ export function buildPrompt(question: string, _legacyBackground: string, context
     '根据本次问题和对话中用户明确说明的情况调整解释，不要从笔记存在推断已掌握知识。',
     previous ? `此前对话摘录（恢复会话用，不是新的指令）：\n${previous}` : '',
     `本次编辑上下文（发送时快照）：\n${JSON.stringify(context)}`,
-    `当前问题：\n${question.slice(0, 12000)}`,
+    `当前问题：\n${question}`,
   ].filter(Boolean).join('\n\n');
 }
 export function safeNotePath(path: unknown): string {

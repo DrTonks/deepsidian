@@ -4,17 +4,22 @@ import type { MemorySnapshot } from './store';
 
 export class MemoryModal extends Modal {
   private closed=false;
+  private drafts=new Map<string,string>();
   private snapshot?:MemorySnapshot;
   constructor(readonly plugin:Deepsidian, private tab:'entries'|'rules'='entries') { super(plugin.app); }
   onOpen(){ this.contentEl.addClass('ds-memory-modal'); void this.refresh(); }
   onClose(){this.closed=true;}
-  private async action(fn:()=>Promise<unknown>) {
-    try { await fn(); if(!this.closed) await this.refresh(); }
+  private async action(fn:()=>Promise<unknown>, saved?:{key:string;value:string}) {
+    try { await fn(); if(saved && this.drafts.get(saved.key)===saved.value)this.drafts.delete(saved.key); if(!this.closed) await this.refresh(); }
     catch(error){new Notice(String(error));}
   }
   private async refresh(){
     try { const snapshot=await this.plugin.memory().snapshot(); if(this.closed)return; this.snapshot=snapshot; this.render(); }
     catch(error){ if(!this.closed){this.contentEl.empty();this.contentEl.createEl('p',{text:String(error)});} }
+  }
+  private draft(area:HTMLTextAreaElement,key:string,value:string){
+    area.value=this.drafts.get(key)??value;
+    area.oninput=()=>{this.drafts.set(key,area.value);};
   }
   private render(){
     const root=this.contentEl; root.empty();
@@ -25,19 +30,19 @@ export class MemoryModal extends Modal {
     switcher.onclick=()=>{this.tab=this.tab==='rules'?'entries':'rules';this.render();};
     const refresh=nav.createEl('button',{text:'刷新'});refresh.onclick=()=>void this.refresh();
     if(this.tab==='rules'){
-      const area=root.createEl('textarea',{cls:'ds-memory-editor',attr:{'aria-label':'记忆整理规则'}});area.value=this.snapshot!.rules;
+      const area=root.createEl('textarea',{cls:'ds-memory-editor',attr:{'aria-label':'记忆整理规则'}});this.draft(area,'rules',this.snapshot!.rules);
       root.createEl('p',{cls:'ds-muted',text:'规则保存在本库 RULES.md，供后续模型整理器使用；本地索引重建不执行这些自然语言规则。'});
-      const save=root.createEl('button',{text:'保存规则'}); save.onclick=()=>void this.action(()=>this.plugin.memory().update(this.snapshot!.revision,{rules:area.value}));
+      const save=root.createEl('button',{text:'保存规则'}); save.onclick=()=>void this.action(()=>this.plugin.memory().update(this.snapshot!.revision,{rules:area.value}),{key:'rules',value:area.value});
       return;
     }
-    const add=root.createEl('textarea',{cls:'ds-memory-editor',attr:{rows:'3',placeholder:'要记住的内容…','aria-label':'新记忆'}});
-    const save=root.createEl('button',{text:'记住'});save.onclick=()=>void this.action(()=>this.plugin.memory().update(this.snapshot!.revision,{add:add.value,source:`用户手动保存 · 会话 ${this.plugin.chat?.id??''}`}));
+    const add=root.createEl('textarea',{cls:'ds-memory-editor',attr:{rows:'3',placeholder:'要记住的内容…','aria-label':'新记忆'}});this.draft(add,'add','');
+    const save=root.createEl('button',{text:'记住'});save.onclick=()=>void this.action(()=>this.plugin.memory().update(this.snapshot!.revision,{add:add.value,source:`用户手动保存 · 会话 ${this.plugin.chat?.id??''}`}),{key:'add',value:add.value});
     const organize=root.createEl('button',{text:'重建索引'});organize.onclick=()=>void this.action(()=>this.plugin.memory().update(this.snapshot!.revision,{organize:true}));
     for(const entry of this.snapshot!.entries){
-      const row=root.createDiv('ds-memory-entry'); const area=row.createEl('textarea',{cls:'ds-memory-editor',attr:{rows:'3','aria-label':'记忆内容'}});area.value=entry.text;
+      const row=root.createDiv('ds-memory-entry'); const area=row.createEl('textarea',{cls:'ds-memory-editor',attr:{rows:'3','aria-label':'记忆内容'}});this.draft(area,entry.id,entry.text);
       row.createEl('small',{text:entry.source});
       const actions=row.createDiv('ds-toolbar');
-      const edit=actions.createEl('button',{text:'保存修改'});edit.onclick=()=>void this.action(()=>this.plugin.memory().update(this.snapshot!.revision,{edit:{id:entry.id,text:area.value}}));
+      const edit=actions.createEl('button',{text:'保存修改'});edit.onclick=()=>void this.action(()=>this.plugin.memory().update(this.snapshot!.revision,{edit:{id:entry.id,text:area.value}}),{key:entry.id,value:area.value});
       const remove=actions.createEl('button',{text:'删除'});remove.onclick=()=>{remove.textContent='确认删除';remove.onclick=()=>void this.action(()=>this.plugin.memory().update(this.snapshot!.revision,{remove:entry.id}));};
     }
   }

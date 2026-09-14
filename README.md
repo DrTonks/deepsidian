@@ -33,7 +33,7 @@ Deepsidian 是桌面端 Obsidian 插件：在侧栏与本地 DSH 运行时对话
 
 ## 环境与首次安装
 
-当前主要验证环境为 **Windows、Obsidian 1.13.7、Node.js 24、DSH 0.1.5-rc.2**。manifest 声明最低 Obsidian 1.7.2，但该最低版本尚未实机验证；macOS/Linux 的构建和路径逻辑不等于运行体验已经验证。不支持移动端。
+此前主要验证环境为 **Windows、Obsidian 1.13.7、Node.js 24、DSH 0.1.5-rc.2**。本次在 macOS 上完成了类型检查、构建、31 项离线测试和 3 项本地合成服务集成测试；已在 macOS Obsidian 1.13.7 完成独立测试库的加载、连接、发送、取消和重载续聊验收，详见 [macOS 验收记录](docs/MACOS-VALIDATION.md)。manifest 声明最低 Obsidian 1.7.2，但该最低版本尚未实机验证。不支持移动端。
 
 ### 1. 准备 DSH
 
@@ -46,7 +46,9 @@ dsh web
 
 在 DSH Web 页面完成模型供应商配置并验证一次对话。API key 由 DSH 管理，Deepsidian 不提供自己的密钥输入框。配置完后可以关闭 DSH Web 服务；插件使用独立运行时。[DSH 官方说明](https://github.com/deepseek-ai/deepseek-harness)
 
-使用精确版本是为了保证兼容性，不代表它永远是最新版本。安装 Node/DSH 后重启 Obsidian，让应用读取新的 PATH。引导提供官方链接、可复制安装命令、路径覆盖及连接诊断；**目前是引导式手动安装，不是一键静默下载器**。
+2026-09-14 核对的最高已发布版本为 `0.1.5-rc.2`（npm `next`）；`latest` 仍指向 `rc.1`。这里使用精确版本以避免主包与子包混用，不代表它永远是最新版本。安装 Node/DSH 后重启 Obsidian。引导提供官方链接、可复制安装命令、路径覆盖及连接诊断；**目前是引导式手动安装，不是一键静默下载器**。
+
+macOS 从 Finder 启动 Obsidian 时，应用的 PATH 可能与终端不同。若“检查并连接”提示找不到 DSH 或 Node，在终端执行 `npm root -g` 与 `command -v node`：将第一个结果追加 `/@deepseek-ai/dsh` 填入“DSH 包目录”，将第二个结果填入“Node 可执行文件”。请使用完整绝对路径；Apple Silicon 的 Homebrew 安装通常位于 `/opt/homebrew/lib/node_modules/@deepseek-ai/dsh` 和 `/opt/homebrew/bin/node`，以命令实际输出为准。Windows 可用 `where.exe node` 定位 Node。
 
 ### 2. 构建与安装插件
 
@@ -59,6 +61,14 @@ npm run install:dev -- "D:/Notes/MyVault"
 ```
 
 最后一行替换为你已有的 Obsidian 库目录，目录中应有 `.obsidian`。也可以配置 `OBSIDIAN_VAULT` 环境变量。安装器只复制构建产物和版权文件，不覆盖既有聊天数据。
+
+macOS 的安装命令示例（路径含空格时保留双引号）：
+
+```sh
+npm run install:dev -- "$HOME/Documents/MyVault"
+```
+
+可在 Finder 中找到自己的库目录并拖入终端获得路径；请替换示例路径。安装完成后，在 Obsidian 的“设置 → 第三方插件”中启用插件；已有版本需重新加载后才会运行新构建。
 
 在 Obsidian 中启用 Deepsidian，点击鲸鱼图标，打开“开始设置”或标题栏设置图标，检查并连接。连接检查不会发出模型请求，因此不验证 API key 余额或云端模型权限；实际对话由已配置的供应商验证。
 
@@ -164,13 +174,14 @@ src/plugin/
 └── types.ts        # 前端持久状态类型
 ```
 
-工程约定与分工建议见 [架构与协作说明](docs/ARCHITECTURE.md)。CI 对源码做类型检查、离线测试和构建；手动触发 workflow 时额外安装已验证 DSH 并运行 Windows 集成测试。CI 配置已提供，首次远端执行结果需以 GitHub 实际运行结果为准。
+工程约定与分工建议见 [架构与协作说明](docs/ARCHITECTURE.md)。CI 配置在 Windows、macOS、Linux 上做类型检查、离线测试和构建；手动触发 workflow 时，在这三个平台安装固定版本 DSH 并运行集成测试。配置变更不代表远端 CI 已通过，执行结果以 GitHub 实际运行记录为准。
 
 ### 当前验证范围
 
-- 17 项离线测试，包含启动时机、连接去重、记忆持久化/事务与指令分流。
-- 2 项真实 DSH + 本地合成模型集成测试：工具、reasoning、取消、续聊、模型参数、图片及重启恢复；原生搜索来源链接、公网抓取边界。
+- 本次 macOS 通过 31 项离线测试，包含路径发现、启动时机、连接去重、记忆事务及草稿、指令保存失败回滚和用量统计。
+- 本次 macOS 通过 3 项 DSH/桥接集成测试，新增准备期取消的 8 个确定性场景；其余覆盖：工具、reasoning、取消、续聊、模型参数、图片及重启恢复；原生搜索来源链接、公网抓取边界。
 - 浏览器组件预览：窄侧栏、轨迹搜索、事件展开和引导显示。
+- macOS Obsidian 1.13.7 独立测试库：插件启用、连接与模型列表、中文笔记上下文、Ctrl/⌘ Enter、停止回答、用量与轨迹显示、重载后的历史恢复和续聊均通过；使用本地合成服务。截图粘贴尚未实机验收。
 - 尚未完成全新机器安装、所有主题、长历史性能与多平台 Obsidian 实机验收；网络搜索尚未以真实付费账号验证服务权限。
 
 ## Roadmap

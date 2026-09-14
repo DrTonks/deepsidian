@@ -1,6 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join, dirname, delimiter, resolve } from 'node:path';
+import { join } from 'node:path';
+import { discoveryCandidates } from './discovery.ts';
+import { setTimeout as nodeSetTimeout } from 'node:timers';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
@@ -12,11 +14,10 @@ export type ToolHandler = (name: string, args: Record<string, unknown>) => Promi
 export type Listener = (method: string, data: any) => void;
 export interface ModelChoice { provider: string; model: string; name?: string; inputModalities?: string[]; reasoning?: { efforts: { id: string; name: string }[] }; }
 export function discover(packageRoot = '', nodePath = '', dshHome = '') {
-  const paths = (process.env.PATH ?? '').split(delimiter);
-  const candidates = [packageRoot, process.env.DSH_PACKAGE_ROOT, ...paths.map(p => join(p, 'node_modules/@deepseek-ai/dsh')), join(process.env.APPDATA ?? homedir(), 'npm/node_modules/@deepseek-ai/dsh'), '/usr/local/lib/node_modules/@deepseek-ai/dsh'].filter(Boolean) as string[];
-  const root = candidates.find(p => existsSync(join(p, 'package.json')));
-  if (!root) throw Error('找不到 DSH。请在设置中填写 @deepseek-ai/dsh 包目录。');
-  const node = [nodePath, ...paths.map(p => join(p, process.platform === 'win32' ? 'node.exe' : 'node')), 'C:/Program Files/nodejs/node.exe', '/usr/local/bin/node', '/usr/bin/node'].find(p => p && existsSync(p));
+  const candidates = discoveryCandidates({ platform: process.platform, path: process.env.PATH ?? '', home: homedir(), appData: process.env.APPDATA, packageRoot, nodePath, envRoot: process.env.DSH_PACKAGE_ROOT, npmPrefix: process.env.npm_config_prefix ?? process.env.NPM_CONFIG_PREFIX, nvmBin: process.env.NVM_BIN });
+  const root = candidates.roots.find(p => existsSync(join(p, 'package.json')));
+  if (!root) throw Error('找不到 DSH。请在设置中填写 @deepseek-ai/dsh 包目录（npm root -g 的结果后加 /@deepseek-ai/dsh）。');
+  const node = candidates.nodes.find(p => existsSync(p));
   if (!node) throw Error('找不到 Node.js。请在设置中填写 Node 可执行文件路径。');
   const req = createRequire(join(root, 'package.json'));
   const versions = Object.fromEntries(['dsh', 'dsh-sdk-minimal', 'dsh-sdk-jsonrpc-server', 'dsh-agent-loop', 'dsh-tools'].map(n => [n, JSON.parse(readFileSync(n === 'dsh' ? join(root, 'package.json') : req.resolve(`@deepseek-ai/${n}/package.json`), 'utf8')).version as string]));
@@ -166,7 +167,10 @@ export class DshClient {
       this.active = { id: sessionId, resolve, reject, timer };
     });
     void result.catch(() => {});
-    try { await this.request('deepsidian/prompt', { sessionId, text, images }); }
+    try {
+      const submitted = await this.request('deepsidian/prompt', { sessionId, text, images });
+      if (submitted.cancelled) this.finish(undefined, { kind: 'aborted' });
+    }
     catch (error) { this.finish(error as Error); }
     return result;
   }
@@ -179,7 +183,7 @@ export class DshClient {
     if (!this.active) return;
     const active = this.active;
     this.send({ jsonrpc: '2.0', method: 'deepsidian/cancel', params: { sessionId: active.id } });
-    setTimeout(() => { if (this.active === active) void this.stop(); }, 15000).unref();
+    nodeSetTimeout(() => { if (this.active === active) void this.stop(); }, 15000).unref();
   }
   async stop() {
     if (!this.child) return;

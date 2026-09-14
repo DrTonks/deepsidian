@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, MarkdownView, MarkdownRenderer, Notice, TFile, Component, setIcon, FuzzySuggestModal } from 'obsidian';
+import { ItemView, WorkspaceLeaf, MarkdownView, MarkdownRenderer, Notice, TFile, Component, Scope, setIcon, FuzzySuggestModal } from 'obsidian';
 import type Deepsidian from './main';
 import { VIEW, type Settings } from './types';
 import { buildPrompt, EMPTY_CONTEXT } from './context';
@@ -39,7 +39,16 @@ export class LearningView extends ItemView {
   private renderAgain = false;
   private markdown = new Component();
   private closed = false;
-  constructor(leaf: WorkspaceLeaf, readonly plugin: Deepsidian) { super(leaf); }
+  constructor(leaf: WorkspaceLeaf, readonly plugin: Deepsidian) {
+    super(leaf);
+    // The host handles shortcuts before DOM listeners (notably Cmd+Enter).
+    this.scope = new Scope(this.app.scope);
+    for (const modifier of ['Meta', 'Ctrl'] as const) this.scope.register([modifier], 'Enter', event => {
+      if (event.target !== this.input || event.isComposing) return;
+      void this.send();
+      return false;
+    });
+  }
   getViewType() { return VIEW; }
   getDisplayText() { return 'Deepsidian'; }
   getIcon() { return 'deepsidian-whale'; }
@@ -62,7 +71,9 @@ export class LearningView extends ItemView {
         finally { this.changing = false; this.refreshStatus(); }
       });
     this.iconButton(actionsHeader, 'settings-2', '连接与首次使用引导', () => new SetupModal(this.plugin, () => { this.renderModels(); this.renderMessages(); }).open());
-    this.iconButton(actionsHeader, 'plus', '新对话', () => { if (!this.changing) this.plugin.newChat(); });
+    this.iconButton(actionsHeader, 'plus', '新对话', () => {
+      if (!this.changing) void Promise.resolve().then(() => this.plugin.newChat()).catch(error => new Notice(String(error)));
+    });
     const tabs = root.createDiv('ds-tabs');
     for (const [mode, label] of [['chat', '对话'], ['trace', '轨迹']] as const) {
       const button = tabs.createEl('button', { text: label, attr: { 'aria-pressed': String(this.mode === mode) } });
@@ -77,7 +88,7 @@ export class LearningView extends ItemView {
     this.input = composer.createEl('textarea', { attr: { placeholder: '从一个不理解的概念开始…', 'aria-label': '学习问题', rows: '3' } });
     this.input.addEventListener('input',()=>{this.commandIndex=0;this.renderCommands();});
     this.input.addEventListener('keydown', event => {
-      if(event.isComposing)return;
+      if(event.defaultPrevented || event.isComposing)return;
       const matches=commandMatches(this.input.value);
       if(!this.commandMenu.hidden && matches.length){
         if(event.key==='Escape'){event.preventDefault();this.commandMenu.hidden=true;this.input.removeAttribute('aria-activedescendant');return;}
@@ -221,10 +232,10 @@ export class LearningView extends ItemView {
   refreshStatus() {
     if (!this.statusEl) return;
     const update = this.plugin.state.updates;
-    this.statusEl.setText(this.plugin.busy ? this.plugin.stopRequested ? '正在停止当前回答…' : 'DSH 正在处理 · 可随时停止' : this.plugin.status);
+    this.statusEl.setText(this.plugin.creatingChat ? '正在保存新会话…' : this.plugin.busy ? this.plugin.stopRequested ? '正在停止当前回答…' : 'DSH 正在处理 · 可随时停止' : this.plugin.status);
     if (update?.error) this.statusEl.createEl('span', { text: ' · 更新检查暂不可用' });
     if (update?.newest && this.plugin.runtimeVersion && compareVersions(update.newest, this.plugin.runtimeVersion) > 0) this.statusEl.createEl('span', { text: ` · 可更新 DSH ${update.newest}` });
-    this.sendButton.disabled = this.plugin.busy || this.changing; this.sendButton.hidden = this.plugin.busy; this.stopButton.hidden = !this.plugin.busy; for (const control of [this.modelSelect, this.effortSelect, this.tokenSelect]) if (control) control.disabled = this.plugin.busy || this.changing; this.stopButton.disabled = !this.plugin.busy || this.plugin.stopRequested; this.history?.refresh();
+    this.sendButton.disabled = this.plugin.busy || this.changing; this.sendButton.hidden = this.plugin.busy; this.stopButton.hidden = !this.plugin.busy || this.plugin.creatingChat; for (const control of [this.modelSelect, this.effortSelect, this.tokenSelect]) if (control) control.disabled = this.plugin.busy || this.changing; this.stopButton.disabled = !this.plugin.busy || this.plugin.stopRequested || this.plugin.creatingChat; this.history?.refresh();
   }
   refreshTools() { if (!this.toolsEl) return; this.toolsEl.empty(); this.toolsEl.hidden = true; this.toolsEl.createEl('summary', { text: `运行记录（${this.plugin.toolEvents.length}）` }); this.toolsEl.createEl('pre', { text: this.plugin.toolEvents.join('\n') }); }
   renderMessages() {

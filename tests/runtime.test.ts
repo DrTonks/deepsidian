@@ -76,3 +76,50 @@ test('real DSH bridge: tools, text stream, cancel, followup and process resume',
     oldKey === undefined ? delete process.env.DEEPSEEK_API_KEY : process.env.DEEPSEEK_API_KEY = oldKey;
   }
 });
+
+test('cancel preparation immediately, suppress submission and allow the next prompt', { timeout: 15000 }, async () => {
+  const env = discover();
+  mkdirSync('.runs', { recursive: true });
+  const directory = mkdtempSync(resolve('.runs', 'cancel-preparation-'));
+  mkdirSync(join(directory, 'lib'));
+  // DshClient launches this deterministic service fixture instead of the DSH CLI.
+  writeFileSync(join(directory, 'package.json'), '{"type":"module"}');
+  // A JS wrapper is passed as the fake DSH CLI; pass fixture inputs through argv.
+  writeFileSync(join(directory, 'lib/bin.js'), `process.argv[2] = ${JSON.stringify(env.root)}; process.argv[3] = ${JSON.stringify(resolve('src/plugin/bridge.mjs'))}; await import(${JSON.stringify(new URL('./fixtures/bridge-preparation.mjs', import.meta.url).href)});`);
+  let preparing = () => {};
+  const submitted: any[] = [];
+  const client = new DshClient({ packageRoot: directory, nodePath: env.node, dshHome: directory, runtimeHome: join(directory, 'runtime'), bridgePath: resolve('src/plugin/bridge.mjs'), cwd: resolve('fixtures'), provider: 'mock', model: 'mock' }, async () => ({}), (method, data) => {
+    if (method === 'test/preparing') preparing();
+    if (method === 'test/submitted') submitted.push(data);
+  });
+  const control = (method: string, params = {}) => (client as any).request(method, params);
+  try {
+    await client.start();
+    for (const scenario of [
+      { stage: 'model' }, { stage: 'images' }, { stage: 'stat' }, { stage: 'create' },
+      { stage: 'stat', stored: true }, { stage: 'resume', stored: true },
+      { stage: 'model', existing: true }, { stage: 'images', existing: true },
+    ]) {
+      const sessionId = randomUUID();
+      if (scenario.existing) await client.prompt(sessionId, 'Warm up existing session');
+      const baseline = submitted.length;
+      await control('test/configure', scenario);
+      const held = new Promise<void>(resolve => { preparing = resolve; });
+      const running = client.prompt(sessionId, 'Must never be submitted');
+      await held;
+      client.cancel();
+      let timer: ReturnType<typeof setTimeout>;
+      try {
+        const result = await Promise.race([running, new Promise((_, reject) => { timer = setTimeout(() => reject(Error(`Cancellation blocked in ${scenario.stage}`)), 1000); })]);
+        assert.equal((result as any).kind, 'aborted');
+      } finally { clearTimeout(timer!); }
+      assert.equal(submitted.length, baseline, 'cancel must finish without releasing preparation');
+      // Retry immediately while the cancelled preparation is still suspended.
+      const next = client.prompt(sessionId, 'Next prompt');
+      await control('test/release');
+      assert.equal((await next).kind, 'completed');
+      assert.equal(submitted.length, baseline + 1, 'only the replacement request may reach followup');
+      assert.ok(JSON.stringify(submitted.at(-1)).includes('Next prompt'));
+    }
+  } finally { await client.stop(); }
+});

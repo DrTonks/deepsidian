@@ -1,11 +1,15 @@
 /** A readable projection of DSH events; the full authoritative log stays in DSH. */
-export interface TraceEntry { type: string; at: number; detail: string; turn?: number; step?: number; preview?: string; callId?: string; }
+export interface TraceUsage { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number; }
+export interface TraceEntry { type: string; at: number; detail: string; turn?: number; step?: number; preview?: string; callId?: string; usage?: TraceUsage; }
 export function reasoningText(stream: any[]): string {
   return (stream ?? []).map(r => r.type === 'reasoning-chunks' ? r.texts.join('') : r.type === 'chunk' && r.chunk.type === 'reasoning-delta' ? r.chunk.text : '').join('');
 }
 export function enrichTraceEntry(entry: TraceEntry): TraceEntry {
   if (entry.preview !== undefined) return entry;
-  try { return { ...traceEntry({ type: entry.type, data: JSON.parse(entry.detail) }), at: entry.at, detail: entry.detail }; }
+  try {
+    const enriched = traceEntry({ type: entry.type, data: JSON.parse(entry.detail) });
+    return { ...enriched, at: entry.at, detail: entry.detail, usage: entry.usage ?? enriched.usage };
+  }
   catch { return entry; }
 }
 export function traceEntry(event: any): TraceEntry {
@@ -16,7 +20,9 @@ export function traceEntry(event: any): TraceEntry {
   const message = data.message ?? (event.type === 'user/message' ? data : undefined);
   const blockText = (blocks: any[]): string => (blocks ?? []).map(b => b.type === 'text' ? b.text : b.type === 'image' ? `[图片：${b.attachment?.name ?? '附件'}]` : b.type === 'tool-result' ? blockText(b.content) : '').filter(Boolean).join('\n');
   const content = blockText(message?.content);
-  return { type: event.type, at: Date.now(), turn: data.turn, step: data.step, preview: (content || (event.type === 'tool/call' ? `${data.name} ${data.arguments}` : '')).slice(0, 500), callId: data.callId ?? message?.content?.[0]?.callId, detail: text.length > 24000 ? text.slice(0,24000) + '\n…界面快照已截断，完整内容见 DSH 会话日志。' : text };
+  // Keep accounting separate from the bounded, potentially truncated display snapshot.
+  const usage: TraceUsage | undefined = event.type === 'assistant/message' && data.usage ? { ...data.usage } : undefined;
+  return { type: event.type, at: Date.now(), turn: data.turn, step: data.step, usage, preview: (content || (event.type === 'tool/call' ? `${data.name} ${data.arguments}` : '')).slice(0, 500), callId: data.callId ?? message?.content?.[0]?.callId, detail: text.length > 24000 ? text.slice(0,24000) + '\n…界面快照已截断，完整内容见 DSH 会话日志。' : text };
 }
 export const eventLabels: Record<string, string> = {
   'turn/start': '开始一轮对话', 'turn/end': '结束本轮', 'step/start': '开始模型调用', 'step/end': '完成一步',
@@ -38,6 +44,8 @@ export function eventTitle(entry: TraceEntry): string {
 }
 export function usageSummary(entries: TraceEntry[]): string {
   const usage = entries.filter(e => e.type === 'assistant/message').flatMap(e => {
+    if (e.usage) return [e.usage];
+    // Older saved entries only stored usage inside the display JSON.
     try { const u = JSON.parse(e.detail).usage; return u ? [u] : []; } catch { return []; }
   });
   if (!usage.length) return '用量未报告';

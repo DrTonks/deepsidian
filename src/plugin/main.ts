@@ -1,3 +1,4 @@
+import { TESTED_DSH } from './versions';
 import { Plugin, MarkdownView, Notice, FileSystemAdapter, TFile, addIcon } from 'obsidian';
 import { join } from 'node:path';
 import { relative, isAbsolute } from 'node:path';
@@ -25,6 +26,7 @@ export default class Deepsidian extends Plugin {
   models: ModelChoice[] = [];
   selectedRoute?: ModelChoice;
   busy = false;
+  creatingChat = false;
   stopRequested = false;
   runtimeVersion = '';
   status = '选择术语，或直接提问';
@@ -50,7 +52,7 @@ export default class Deepsidian extends Plugin {
     addIcon('deepsidian-whale', WHALE_ICON);
     const saved = await this.loadData() as Partial<Saved> | null;
     this.state = { settings: { ...defaults, ...saved?.settings }, chats: saved?.chats ?? [], activeId: saved?.activeId ?? '', updates: saved?.updates };
-    if (!this.chat) this.newChat();
+    if (!this.chat) await this.newChat();
     // Connect only after Obsidian has restored its layout; do not block onload.
     for (const chat of this.state.chats) for (const message of chat.messages) if (message.status === '生成中') message.status = '上次运行被中断';
     this.registerView(VIEW, leaf => new LearningView(leaf, this));
@@ -97,13 +99,16 @@ export default class Deepsidian extends Plugin {
     if(name==='goal'){
       if(args.length>2000)throw Error('目标最多 2000 字符');
       if(!args){new Notice(this.chat?.goal?`当前目标：${this.chat.goal}`:'用法：/goal 目标内容；/goal clear 清除。不自动续跑。',8000);return {};}
-      const chat=this.chat;if(!chat)throw Error('当前会话不存在');chat.goal=args==='clear'?undefined:args;await this.persist();new Notice(args==='clear'?'已清除会话目标':'已设置本会话目标；后续提问会带入，不自动续跑');return {};
+      const chat=this.chat;if(!chat)throw Error('当前会话不存在');
+      const previous=chat.goal;chat.goal=args==='clear'?undefined:args;
+      try {await this.persist();} catch(error) {chat.goal=previous;throw error;}
+      new Notice(args==='clear'?'已清除会话目标':'已设置本会话目标；后续提问会带入，不自动续跑');return {};
     }
     if(name==='remember') {if(!args)throw Error('用法：/remember 要记住的内容');const s=await this.memory().snapshot();await this.memory().update(s.revision,{add:args,source:`显式 /remember · 会话 ${this.chat?.id??''}`});new Notice('已保存到本库记忆；自动召回尚未启用');}
     if(name==='memory')this.openMemory();
     if(name==='rules')this.openMemory('rules');
     if(name==='organize')await this.organizeMemory();
-    if(name==='new')this.newChat();
+    if(name==='new')await this.newChat();
     if(name==='connect')await this.connect();
     if(name==='help')new Notice(commands.map(c=>`/${c.name} ${c.hint} — ${c.description}`).join('\n'),15000);
     return {};
@@ -115,11 +120,22 @@ export default class Deepsidian extends Plugin {
     this.saveQueue = job;
     return job;
   }
-  newChat() {
-    if (this.busy) { new Notice('请先停止当前回答'); return; }
+  async newChat() {
+    if (this.busy) throw Error('请等待当前操作结束后新建对话');
     const chat: Chat = { id: randomUUID(), title: '新的学习对话', messages: [] };
+    const previousId = this.state.activeId;
+    this.busy = true; this.creatingChat = true;
     this.state.chats.unshift(chat); this.state.activeId = chat.id;
-    this.toolEvents = []; void this.persist(); this.view?.renderMessages(); this.view?.refreshChats();
+    this.view?.refreshStatus();
+    try { await this.persist(); this.toolEvents = []; }
+    catch (error) {
+      this.state.chats = this.state.chats.filter(item => item !== chat);
+      this.state.activeId = previousId;
+      throw Error(`新建会话保存失败：${String(error)}`);
+    } finally {
+      this.busy = false; this.creatingChat = false;
+      this.view?.renderMessages(); this.view?.refreshChats(); this.view?.refreshStatus();
+    }
   }
   async open() {
     let leaf = this.app.workspace.getLeavesOfType(VIEW)[0];
@@ -164,7 +180,7 @@ export default class Deepsidian extends Plugin {
     catch(error){await client.stop();if(this.client===client)this.client=undefined;throw error;}
     this.selectedRoute = env.model;
     if (this.state.settings.checkUpdates) void this.update(false);
-    this.status = `${env.model.model} · DSH ${env.versions.dsh}${Object.values(env.versions).every(v => v === '0.1.5-rc.2') ? '' : ' · 此版本未验证'}`;
+    this.status = `${env.model.model} · DSH ${env.versions.dsh}${Object.values(env.versions).every(v => v === TESTED_DSH) ? '' : ' · 此版本未验证'}`;
     this.view?.refreshStatus(); return client;
   }
   async disconnect() {
@@ -209,11 +225,13 @@ export default class Deepsidian extends Plugin {
   }
   async ask(question: string, attachments: Attachment[] = []) {
     if (this.busy || !question.trim()) return;
+    this.capture();
+    const source = { ...this.source };
     const inputQuestion=this.chat?.goal?`本会话目标：${this.chat.goal}\n\n本次问题：${question}`:question;
-    const prompt = buildPrompt(inputQuestion, '', this.source) + attachmentText(attachments);
+    const prompt = buildPrompt(inputQuestion, '', source) + attachmentText(attachments);
     if (prompt.length > 40000) { new Notice('本次上下文超过 40000 字符，请减少附件或选区。'); return; }
     const chat = this.chat!;
-    this.busy = true; this.stopRequested = false; this.capture(); this.activeSource = { ...this.source };
+    this.busy = true; this.stopRequested = false; this.activeSource = source;
     this.toolEvents = []; this.attempt = ''; this.committed = ''; this.reasoningAttempt = ''; this.reasoningCommitted = '';
     chat.messages.push({ role: 'user', text: question, source: { ...this.activeSource }, attachments: attachments.map(f => f.name) });
     if (chat.messages.length === 1) chat.title = question.slice(0, 28);
@@ -225,7 +243,7 @@ export default class Deepsidian extends Plugin {
       const client = await this.connect();
       if (this.stopRequested) throw Error('已在发送模型请求前停止');
       answer.model = client.options.model;
-      const reason = await client.prompt(chat.id, buildPrompt(inputQuestion, '', this.activeSource) + attachmentText(attachments), attachments.flatMap(f => f.image ? [f.image] : []));
+      const reason = await client.prompt(chat.id, prompt, attachments.flatMap(f => f.image ? [f.image] : []));
       answer.status = reason.kind === 'completed' ? '完成' : reason.kind === 'aborted' ? '已停止' : `已结束：${reason.kind}`;
       if (!answer.text) answer.text = answer.status === '完成' ? '模型未返回可显示文本。可检查模型配置或再次提问。' : '本次回答已停止。';
     } catch (error) { answer.status = this.stopRequested ? '已停止' : '失败'; answer.text += `\n\n${String(error)}`; }
@@ -288,4 +306,3 @@ export default class Deepsidian extends Plugin {
     try { await this.updateTask; } finally { this.updateTask = undefined; }
   }
 }
-

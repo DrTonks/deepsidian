@@ -1,3 +1,4 @@
+import { TESTED_DSH } from '../../src/plugin/versions';
 import { LearningView } from '../../src/plugin/view';
 import { SetupModal } from '../../src/plugin/setup';
 import { defaults } from '../../src/plugin/types';
@@ -33,11 +34,11 @@ const plugin:any={
  state:{settings:{...defaults,setupComplete:screen!=='setup',background:'熟悉前端，正在了解 Transformer。'},chats:[chat],activeId:chat.id},
  get chat(){return this.state.chats.find((c:Chat)=>c.id===this.state.activeId);},
  models:[{provider:'deepseek-official',model:'deepseek-flash',name:'DeepSeek-V41-Flash',inputModalities:['text','image'],reasoning:{efforts:[{id:'off',name:'关闭'},{id:'high',name:'High'},{id:'max',name:'Max'}]}}],
- busy:false,stopRequested:false,runtimeVersion:'0.1.5-rc.2',status:'DeepSeek-V41-Flash · 按需连接',toolEvents:[],includeContext:true,
+ busy:false,stopRequested:false,runtimeVersion:TESTED_DSH,status:'DeepSeek-V41-Flash · 按需连接',toolEvents:[],includeContext:true,
  source:{path:'学习笔记/注意力机制.md',selection:'自回归生成',nearby:'已记录 Query、Key、Value 与注意力公式。'},
  app:{workspace:{getActiveViewOfType:()=>null,openLinkText:async()=>{},getLeavesOfType:()=>[]},vault:{getFiles:()=>[],readBinary:async()=>new ArrayBuffer(0)}},
  attach(view:any){this.view=view;},detach(){},capture(){},persist:async()=>{},
- resolveEnvironment(){return {model:{provider:this.state.settings.provider||'deepseek-official',model:this.state.settings.model||'deepseek-flash'},versions:{dsh:'0.1.5-rc.2'}};},
+ resolveEnvironment(){return {model:{provider:this.state.settings.provider||'deepseek-official',model:this.state.settings.model||'deepseek-flash'},versions:{dsh:TESTED_DSH}};},
  connect:async()=>{throw Error('组件预览不启动 DSH，请在 Obsidian 中连接。');},disconnect:async()=>{},
  newChat(){this.state.chats.unshift({id:'new',title:'新对话',messages:[]});this.state.activeId='new';this.view.renderMessages();this.view.refreshChats();},
  ask:async()=>{},stopAnswer(){},

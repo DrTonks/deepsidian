@@ -14,6 +14,7 @@ export function apply(ctx) {
   const pending = new Map();
   const handles = new Map();
   const creating = new Map();
+  const submissions = new Map();
   const route = JSON.parse(process.env.DEEPSIDIAN_ROUTE);
   const notify = (method, params) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n');
   const input = createInterface({ input: process.stdin });
@@ -35,16 +36,30 @@ export function apply(ctx) {
     if (frame.method === 'deepsidian/cancel') {
       const agent = ctx.agents.get(frame.params?.sessionId);
       notify('deepsidian.cancel-status', { sessionId: frame.params?.sessionId, found: !!agent });
-      agent?.cancel({ kind: 'user' });
+      const submission = submissions.get(frame.params?.sessionId);
+      if (submission) {
+        submission.cancelled = true;
+        submission.reply({ result: { cancelled: true } });
+        if (submissions.get(frame.params.sessionId) === submission) submissions.delete(frame.params.sessionId);
+      } else agent?.cancel({ kind: 'user' });
     }
     if (frame.method === 'deepsidian/prompt') {
       const { sessionId, text, requestId, images = [] } = frame.params;
+      const submission = { cancelled: false, replied: false, reply(payload) {
+        if (this.replied) return;
+        this.replied = true;
+        process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: requestId, ...payload }) + '\n');
+      } };
+      submissions.set(sessionId, submission);
+      const checkCancelled = () => { if (submission.cancelled) throw Error('Prompt cancelled before submission'); };
       const submit = async () => {
         if (!/^[0-9a-f-]{36}$/i.test(sessionId) || typeof text !== 'string' || text.length > 40000) throw Error('Invalid prompt');
         if (!Array.isArray(images) || images.length > 4 || images.some(i => typeof i.data !== 'string' || i.data.length > 7_000_000 || !['image/png','image/jpeg','image/webp','image/gif'].includes(i.mimeType))) throw Error('图片格式或大小不受支持');
         const info = await ctx.llm.resolveModelInfo(route.provider, route.model);
+        checkCancelled();
         if (images.length && !info.inputModalities?.includes('image')) throw Error('当前模型未声明图片输入能力，请切换支持图片的模型；截图不会被当作已读内容。');
         const refs = await admitEncodedImages(ctx.attachments, images.map(i => ({ data: i.data, mediaType: i.mimeType, name: i.name })));
+        checkCancelled();
         let handle = handles.get(sessionId);
         if (!handle) {
           let creation = creating.get(sessionId);
@@ -58,11 +73,14 @@ export function apply(ctx) {
           }
           try { handle = await creation; } finally { creating.delete(sessionId); }
         }
+        checkCancelled();
         const message = createUserMessage({ content: [{ type: 'text', text }, ...refs.map(attachment => ({ type: 'image', attachment }))], source: { kind: 'user' } });
         handle.agent.followup(message);
         return { messageId: message.id };
       };
-      void submit().then(result => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: requestId, result }) + '\n'), error => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: requestId, error: { code: -32000, message: String(error) } }) + '\n'));
+      void submit().then(result => submission.reply({ result }), error => submission.reply({ error: { code: -32000, message: String(error) } })).finally(() => {
+        if (submissions.get(sessionId) === submission) submissions.delete(sessionId);
+      });
     }
     const p = pending.get(frame.id);
     if (p && !frame.method) { pending.delete(frame.id); p.cleanup(); frame.error ? p.reject(Error(frame.error.message)) : p.resolve(frame.result); }

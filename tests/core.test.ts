@@ -20,6 +20,16 @@ test('prompt freezes the source and never injects retired background', () => {
   assert.match(prompt, /selected/); assert.doesNotMatch(prompt, /changed/); assert.ok(prompt.length < 8000);
   assert.doesNotMatch(prompt, /LEGACY_BACKGROUND_DO_NOT_SEND|学习背景（由用户填写/);
 });
+test('long questions retain the final instruction and cannot bypass the prompt budget', () => {
+  const context = {path:'', selection:'', nearby:''};
+  const question = '资料'.repeat(6500) + '\n最终问题：请比较最后两段。';
+  const prompt = buildPrompt(question, '', context);
+  assert.ok(prompt.endsWith(question));
+  assert.ok(prompt.length < 40000);
+  const oversized = buildPrompt('资料'.repeat(20000) + '\n最终问题：请比较最后两段。', '', context);
+  assert.ok(oversized.length > 40000, 'the send-time budget must see the entire question');
+  assert.ok(oversized.endsWith('最终问题：请比较最后两段。'));
+});
 test('prereleases sort numerically and precede final releases', () => {
   const list = ['0.1.5-rc.2','0.1.5','0.1.5-rc.10','0.1.5-alpha.2','0.1.4'];
   assert.deepEqual(list.sort(compareVersions), ['0.1.4','0.1.5-alpha.2','0.1.5-rc.2','0.1.5-rc.10','0.1.5']);
