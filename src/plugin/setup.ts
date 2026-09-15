@@ -33,7 +33,7 @@ export class SetupModal extends Modal {
         await this.plugin.persist(); await this.plugin.disconnect();
         const client = await this.plugin.connect(); this.plugin.models = await client.models();
         this.plugin.state.settings.setupComplete = true; await this.plugin.persist();
-        status.setText(`已连接 DSH ${this.plugin.runtimeVersion}，发现 ${this.plugin.models.length} 个候选模型。现在可以返回侧栏提问；连接空闲约 5 分钟后会自动释放。`);
+        status.setText(`已连接 DSH ${this.plugin.runtimeVersion}，发现 ${this.plugin.models.length} 个候选模型。现在可以返回侧栏提问；焦点在侧栏时保持连接；离开且空闲约5分钟后休眠，返回时自动唤醒。`);
         this.done?.();
       } catch (error) { status.setText(`未连接：${String(error)}。请检查上方步骤与路径；安装后需要重启 Obsidian。`); }
       finally { this.checking = false; button.setDisabled(false); }

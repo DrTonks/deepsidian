@@ -48,6 +48,10 @@ export default class Deepsidian extends Plugin {
   private connecting?: Promise<DshClient>;
   private disconnecting?: Promise<void>;
   private memoryStore?: MemoryStore;
+  private autoAttempt?: Promise<void>;
+  private retryAt = 0;
+  private retryDelay = 2000;
+  private layoutReady = false;
   async onload() {
     addIcon('deepsidian-whale', WHALE_ICON);
     const saved = await this.loadData() as Partial<Saved> | null;
@@ -74,10 +78,10 @@ export default class Deepsidian extends Plugin {
     this.addCommand({id:'memory-rules',name:'编辑记忆整理规则',callback:()=>this.openMemory('rules')});
     this.addCommand({id:'memory-organize',name:'整理记忆索引（本地）',callback:()=>void this.organizeMemory().catch(e=>new Notice(String(e)))});
     this.app.workspace.onLayoutReady(()=>{
-      if(this.disposed || !this.state.settings.autoConnect)return;
-      void this.connect().catch(error=>{ if(!this.disposed){this.status=`自动连接未完成：${String(error)}；可打开连接引导`;this.view?.refreshStatus();} });
+      this.layoutReady = true;
+      void this.ensureAutomaticConnection();
     });
-    this.registerInterval(window.setInterval(() => { if (!this.busy && this.client?.connected && Date.now() - this.lastUsed > 300000) void this.disconnect(); }, 30000));
+    this.registerInterval(window.setInterval(() => this.maintainConnection(), 1000));
   }
   onunload() { this.disposed = true; void this.client?.stop(); }
   memory(){
@@ -100,8 +104,8 @@ export default class Deepsidian extends Plugin {
       if(args.length>2000)throw Error('目标最多 2000 字符');
       if(!args){new Notice(this.chat?.goal?`当前目标：${this.chat.goal}`:'用法：/goal 目标内容；/goal clear 清除。不自动续跑。',8000);return {};}
       const chat=this.chat;if(!chat)throw Error('当前会话不存在');
-      const previous=chat.goal;chat.goal=args==='clear'?undefined:args;
-      try {await this.persist();} catch(error) {chat.goal=previous;throw error;}
+      const goal=args==='clear'?undefined:args;
+      await this.saveChange(draft => { draft.chats.find(c => c.id === chat.id)!.goal = goal; }, () => { chat.goal = goal; });
       new Notice(args==='clear'?'已清除会话目标':'已设置本会话目标；后续提问会带入，不自动续跑');return {};
     }
     if(name==='remember') {if(!args)throw Error('用法：/remember 要记住的内容');const s=await this.memory().snapshot();await this.memory().update(s.revision,{add:args,source:`显式 /remember · 会话 ${this.chat?.id??''}`});new Notice('已保存到本库记忆；自动召回尚未启用');}
@@ -114,33 +118,70 @@ export default class Deepsidian extends Plugin {
     return {};
   }
   get chat() { return this.state.chats.find(c => c.id === this.state.activeId); }
-  persist() {
-    const snapshot = JSON.parse(JSON.stringify(this.state));
-    const job = this.saveQueue.catch(() => {}).then(() => this.saveData(snapshot));
+  // Snapshot at execution time; staged changes only become visible after a successful write.
+  private saveChange(change: (draft: Saved) => void = () => {}, commit: () => void = () => {}) {
+    const job = this.saveQueue.catch(() => {}).then(async () => {
+      const draft: Saved = JSON.parse(JSON.stringify(this.state));
+      change(draft);
+      await this.saveData(draft);
+      commit();
+    });
     this.saveQueue = job;
     return job;
+  }
+  persist() { return this.saveChange(); }
+  async selectChat(id: string) {
+    if (this.busy) throw Error('请等待当前操作结束后切换会话');
+    if (!this.state.chats.some(chat => chat.id === id)) throw Error('会话不存在');
+    await this.saveChange(draft => { draft.activeId = id; }, () => { this.state.activeId = id; });
   }
   async newChat() {
     if (this.busy) throw Error('请等待当前操作结束后新建对话');
     const chat: Chat = { id: randomUUID(), title: '新的学习对话', messages: [] };
-    const previousId = this.state.activeId;
     this.busy = true; this.creatingChat = true;
-    this.state.chats.unshift(chat); this.state.activeId = chat.id;
     this.view?.refreshStatus();
-    try { await this.persist(); this.toolEvents = []; }
-    catch (error) {
-      this.state.chats = this.state.chats.filter(item => item !== chat);
-      this.state.activeId = previousId;
-      throw Error(`新建会话保存失败：${String(error)}`);
-    } finally {
+    try {
+      await this.saveChange(draft => { draft.chats.unshift(chat); draft.activeId = chat.id; },
+        () => { this.state.chats.unshift(chat); this.state.activeId = chat.id; });
+      this.toolEvents = [];
+    } catch (error) { throw Error(`新建会话保存失败：${String(error)}`); }
+    finally {
       this.busy = false; this.creatingChat = false;
       this.view?.renderMessages(); this.view?.refreshChats(); this.view?.refreshStatus();
     }
+  }
+  sidebarActivated() {
+    this.lastUsed = Date.now();
+    void this.ensureAutomaticConnection();
+  }
+  private maintainConnection() {
+    if (this.disposed || !this.layoutReady) return;
+    if (this.view?.hasFocus()) {
+      this.lastUsed = Date.now();
+      void this.ensureAutomaticConnection();
+    } else if (!this.busy && !this.connecting && !this.disconnecting && this.client?.connected && Date.now() - this.lastUsed > 300000) {
+      void this.disconnect().catch(() => {});
+    }
+  }
+  private async ensureAutomaticConnection() {
+    if (this.disposed || !this.layoutReady || !this.state.settings.autoConnect || this.busy || this.disconnecting || this.autoAttempt || Date.now() < this.retryAt) return;
+    if (this.client?.connected && !this.connecting) return;
+    const job = (async () => {
+      try { await this.connect(); this.retryAt = 0; this.retryDelay = 2000; }
+      catch (error) {
+        this.retryAt = Date.now() + this.retryDelay;
+        this.retryDelay = Math.min(this.retryDelay * 2, 30000);
+        if (!this.disposed) { this.status = `暂未连接：${String(error)}；侧栏聚焦时自动重试，可在设置中诊断`; this.view?.refreshStatus(); }
+      }
+    })();
+    this.autoAttempt = job;
+    try { await job; } finally { if (this.autoAttempt === job) this.autoAttempt = undefined; }
   }
   async open() {
     let leaf = this.app.workspace.getLeavesOfType(VIEW)[0];
     if (!leaf) { leaf = this.app.workspace.getRightLeaf(false)!; await leaf.setViewState({ type: VIEW, active: true }); }
     await this.app.workspace.revealLeaf(leaf);
+    this.sidebarActivated();
   }
   attach(view: LearningView) { this.view = view; }
   detach(view: LearningView) { if (this.view === view) this.view = undefined; }
@@ -161,8 +202,8 @@ export default class Deepsidian extends Plugin {
     await this.disconnecting;
     if(this.disposed)throw Error('插件已关闭');
     this.lastUsed = Date.now();
-    if (this.client?.connected) return this.client;
     if(this.connecting)return this.connecting;
+    if (this.client?.connected) return this.client;
     const job=this.connectRuntime();this.connecting=job;
     try{return await job;}finally{if(this.connecting===job)this.connecting=undefined;}
   }
@@ -176,16 +217,16 @@ export default class Deepsidian extends Plugin {
     this.client = new DshClient({ packageRoot: env.root, nodePath: env.node, dshHome: env.home, runtimeHome: join(directory, '.runtime'), bridgePath: join(directory, 'bridge.mjs'), cwd: base, ...env.model, reasoningEffort: this.state.settings.reasoningEffort, maxTokens: this.state.settings.maxTokens, webSearch: this.state.settings.webSearch, webFetch: this.state.settings.webFetch },
       (name, args) => this.handleTool(name, args), (method, data) => this.onRuntime(method, data));
     const client=this.client;
-    try {await client.start();if(this.disposed)throw Error('插件已关闭');}
+    try {await client.start(); this.models = await client.models(); if(this.disposed)throw Error('插件已关闭');}
     catch(error){await client.stop();if(this.client===client)this.client=undefined;throw error;}
     this.selectedRoute = env.model;
-    if (this.state.settings.checkUpdates) void this.update(false);
+    if (this.state.settings.checkUpdates) void this.update(false).catch(() => {});
     this.status = `${env.model.model} · DSH ${env.versions.dsh}${Object.values(env.versions).every(v => v === TESTED_DSH) ? '' : ' · 此版本未验证'}`;
-    this.view?.refreshStatus(); return client;
+    this.view?.refreshConnection(); return client;
   }
   async disconnect() {
     if(this.disconnecting)return this.disconnecting;
-    const job=(async()=>{await this.connecting?.catch(()=>{});await this.client?.stop();this.client=undefined;this.status='已断开，下次提问会重新连接';this.view?.refreshStatus();})();
+    const job=(async()=>{await this.connecting?.catch(()=>{});await this.client?.stop();this.client=undefined;this.status=this.state.settings.autoConnect?'运行时已休眠，返回侧栏将自动连接':'运行时已休眠，发送消息时连接';this.view?.refreshStatus();})();
     this.disconnecting=job;
     try{await job;}finally{if(this.disconnecting===job)this.disconnecting=undefined;}
   }
@@ -221,7 +262,7 @@ export default class Deepsidian extends Plugin {
         this.toolEvents = this.toolEvents.slice(-30); this.view?.refreshTools();
       }
     }
-    if (method === 'disconnected') { this.status = 'DSH 已断开，下次提问将重新连接'; this.view?.refreshStatus(); }
+    if (method === 'disconnected') { this.status = this.state.settings.autoConnect ? '连接已中断，侧栏聚焦时自动重连' : '连接已中断，发送消息时重连'; this.view?.refreshStatus(); }
   }
   async ask(question: string, attachments: Attachment[] = []) {
     if (this.busy || !question.trim()) return;

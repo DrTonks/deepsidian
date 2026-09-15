@@ -28,7 +28,7 @@ test('concurrent connection requests share one start and wait for an in-progress
 });
 test('host commands keep management out of model calls and persist a bounded session goal',async()=>{
   const p=new Deepsidian();p.state.chats=[{id:'a',title:'a',messages:[]}];p.state.activeId='a';let saved=0,opened=0;
-  p.persist=async()=>{saved++;};p.openMemory=()=>{opened++;};
+  p.saveData=async()=>{saved++;};p.openMemory=()=>{opened++;};
   await p.runCommand('/memory');assert.equal(opened,1);
   await p.runCommand('/goal 理解注意力');assert.equal(p.chat.goal,'理解注意力');assert.equal(saved,1);
   await p.runCommand('/goal clear');assert.equal(p.chat.goal,undefined);
@@ -39,7 +39,7 @@ test('host commands keep management out of model calls and persist a bounded ses
 });
 test('failed goal changes leave the previous goal active',async()=>{
   const p=new Deepsidian();p.state.chats=[{id:'a',title:'a',messages:[],goal:'原目标'}];p.state.activeId='a';
-  p.persist=async()=>{throw Error('disk full');};
+  p.saveData=async()=>{throw Error('disk full');};
   for(const command of ['/goal 新目标','/goal clear']){
     await assert.rejects(()=>p.runCommand(command),/disk full/);
     assert.equal(p.chat.goal,'原目标');
@@ -49,10 +49,10 @@ test('new chat awaits persistence, blocks concurrent edits, and rolls back on fa
   const p=new Deepsidian();const original={id:'a',title:'a',messages:[]};
   p.state.chats=[original];p.state.activeId='a';p.toolEvents=['previous tools'];
   let rejectSave!:(error:Error)=>void;
-  p.persist=()=>new Promise<void>((_resolve,reject)=>{rejectSave=reject;});
+  p.saveData=()=>new Promise<void>((_resolve,reject)=>{rejectSave=reject;});
   const creating=p.runCommand('/new');
   const failure=assert.rejects(creating,/新建会话保存失败.*disk full/);
-  assert.equal(p.busy,true);assert.equal(p.creatingChat,true);assert.equal(p.state.chats.length,2);
+  assert.equal(p.busy,true);assert.equal(p.creatingChat,true);assert.equal(p.state.chats.length,1);
   await assert.rejects(()=>p.newChat(),/当前操作/);
   await assert.rejects(()=>p.runCommand('/new'),/结束/);
   await assert.rejects(()=>p.runCommand('/goal changed'),/结束/);
@@ -60,12 +60,12 @@ test('new chat awaits persistence, blocks concurrent edits, and rolls back on fa
   rejectSave(Error('disk full'));await failure;
   assert.deepEqual(p.state.chats,[original]);assert.equal(p.state.activeId,'a');
   assert.deepEqual(p.toolEvents,['previous tools']);assert.equal(p.busy,false);assert.equal(p.creatingChat,false);
-  let saved=false;p.persist=async()=>{saved=true;};
+  let saved=false;p.saveData=async()=>{saved=true;};
   await p.runCommand('/new');assert.equal(saved,true);assert.equal(p.state.chats.length,2);
   assert.notEqual(p.state.activeId,'a');assert.deepEqual(p.toolEvents,[]);assert.equal(p.busy,false);
 });
 test('first activation awaits the initial chat save and reports a save failure',async()=>{
-  const p=new Deepsidian();p.persist=async()=>{throw Error('disk full');};
+  const p=new Deepsidian();p.saveData=async()=>{throw Error('disk full');};
   await assert.rejects(()=>p.onload(),/新建会话保存失败.*disk full/);
   assert.equal(p.state.chats.length,0);assert.equal(p.state.activeId,'');assert.equal(p.busy,false);
 });
@@ -79,4 +79,65 @@ test('host budgets the current captured context and sends the same frozen prompt
   await p.ask('解释选区');
   assert.equal(captured,2);assert.equal(connected,1);assert.match(sent,/当前.md/);assert.doesNotMatch(sent,/NEW_SOURCE|另一个.md/);
   assert.equal(p.chat.messages[0].source.path,'当前.md');
+});
+
+
+test('failed staged changes never leak into queued background saves', async () => {
+  for (const operation of ['new', 'goal', 'select']) {
+    const p = new Deepsidian();
+    p.state.chats = [{id:'old',title:'old',messages:[],goal:'original'}, {id:'other',title:'other',messages:[]}]; p.state.activeId='old';
+    let rejectFirst!:(error:Error)=>void, started!:()=>void, disk:any, count=0;
+    const entered=new Promise<void>(resolve=>started=resolve);
+    p.saveData=async(snapshot:any)=>{ if(++count===1){started();await new Promise<void>((_r,reject)=>rejectFirst=reject);} disk=structuredClone(snapshot); };
+    const attempt=operation==='new'?p.newChat():operation==='goal'?p.runCommand('/goal changed'):p.selectChat('other');
+    const failed=assert.rejects(attempt,/disk failure/); await entered;
+    p.state.settings.maxTokens=8192; const background=p.persist();
+    rejectFirst(Error('disk failure')); await failed; await background;
+    assert.deepEqual(disk,p.state); assert.equal(disk.activeId,'old'); assert.equal(disk.chats.length,2);
+    assert.equal(disk.chats[0].goal,'original'); assert.equal(disk.settings.maxTokens,8192);
+  }
+});
+
+test('successful staged creation is included in later queued saves', async () => {
+  const p=new Deepsidian();p.state.chats=[{id:'old',title:'old',messages:[]}];p.state.activeId='old';
+  let release!:()=>void, started!:()=>void, disk:any, count=0;
+  const entered=new Promise<void>(resolve=>started=resolve);
+  p.saveData=async(snapshot:any)=>{if(++count===1){started();await new Promise<void>(r=>release=r);}disk=structuredClone(snapshot);};
+  const creating=p.newChat();await entered;const background=p.persist();release();await creating;await background;
+  assert.deepEqual(disk,p.state);assert.equal(disk.chats.length,2);assert.notEqual(disk.activeId,'old');
+});
+
+test('focused sidebar keeps runtime alive, unfocused idle recycles, and return reconnects', async () => {
+  const p=new Deepsidian();p.layoutReady=true;let focused=true, stops=0, starts=0;
+  p.view={hasFocus:()=>focused};p.client={connected:true};p.lastUsed=0;
+  p.disconnect=async()=>{stops++;p.client=undefined;};
+  p.connect=async()=>{starts++;p.client={connected:true};return p.client;};
+  p.maintainConnection();assert.equal(stops,0);
+  focused=false;p.maintainConnection();assert.equal(stops,0);
+  p.lastUsed=0;p.maintainConnection();assert.equal(stops,1);
+  focused=true;p.sidebarActivated();await p.autoAttempt;assert.equal(starts,1);
+  p.client=undefined;p.maintainConnection();await p.autoAttempt;assert.equal(starts,2);
+  p.busy=true;p.client=undefined;p.maintainConnection();assert.equal(starts,2);
+});
+
+test('automatic connection coalesces focus events, backs off failures and honors opt-out/unload', async () => {
+  const p=new Deepsidian();p.layoutReady=true;let attempts=0, fail!:(e:Error)=>void;
+  p.connect=()=>{attempts++;return new Promise((_r,reject)=>fail=reject);};
+  p.sidebarActivated();p.sidebarActivated();assert.equal(attempts,1);
+  fail(Error('missing runtime'));await p.autoAttempt;
+  p.sidebarActivated();assert.equal(attempts,1);assert.ok(p.retryAt>Date.now());
+  p.retryAt=0;p.sidebarActivated();assert.equal(attempts,2);fail(Error('offline'));await p.autoAttempt;
+  assert.equal(p.retryDelay,8000);
+  p.retryAt=0;p.state.settings.autoConnect=false;p.sidebarActivated();assert.equal(attempts,2);
+  p.state.settings.autoConnect=true;p.disposed=true;p.sidebarActivated();assert.equal(attempts,2);
+});
+
+
+test('connect waits for initialization even when the child process is already alive', async () => {
+  const p=new Deepsidian();let release!:()=>void, returned=false;
+  p.connectRuntime=async()=>{p.client={connected:true};await new Promise<void>(r=>release=r);return p.client;};
+  const first=p.connect();await Promise.resolve();
+  const second=p.connect().then((value:any)=>{returned=true;return value;});
+  await Promise.resolve();await Promise.resolve();assert.equal(returned,false);
+  release();assert.equal(await first,await second);
 });

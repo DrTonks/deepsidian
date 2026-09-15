@@ -39,6 +39,9 @@ export class LearningView extends ItemView {
   private renderAgain = false;
   private markdown = new Component();
   private closed = false;
+  private focusCleanup?: () => void;
+  hasFocus() { const doc = this.contentEl.ownerDocument; return !this.closed && !this.changing && doc.hasFocus() && this.contentEl.contains(doc.activeElement); }
+  refreshConnection() { if (!this.closed && this.statusEl) { this.renderModels(); this.refreshStatus(); this.renderMessages(); } }
   constructor(leaf: WorkspaceLeaf, readonly plugin: Deepsidian) {
     super(leaf);
     // The host handles shortcuts before DOM listeners (notably Cmd+Enter).
@@ -54,7 +57,11 @@ export class LearningView extends ItemView {
   getIcon() { return 'deepsidian-whale'; }
   async onOpen() {
     this.closed = false; this.addChild(this.markdown); this.plugin.attach(this);
-    const root = this.contentEl; root.empty(); root.addClass('deepsidian');
+    const root = this.contentEl; root.empty(); root.addClass('deepsidian'); root.tabIndex = -1;
+    const wake = () => { if (this.hasFocus()) this.plugin.sidebarActivated(); };
+    root.addEventListener('focusin', wake);
+    root.ownerDocument.defaultView?.addEventListener('focus', wake);
+    this.focusCleanup = () => { root.removeEventListener('focusin', wake); root.ownerDocument.defaultView?.removeEventListener('focus', wake); };
     const header = root.createDiv('ds-header');
     const brand = header.createDiv('ds-brand'); setIcon(brand.createSpan('ds-brand-icon'), 'deepsidian-whale');
     this.chatTitle = brand.createEl('strong', { cls: 'ds-chat-title', text: '新对话' });
@@ -64,10 +71,9 @@ export class LearningView extends ItemView {
       () => ({ ...this.plugin.state, busy: this.plugin.busy || this.changing }),
       async id => {
         if (this.plugin.busy || this.changing) return;
-        const previous = this.plugin.state.activeId;
-        this.changing = true; this.plugin.state.activeId = id; this.refreshStatus();
-        try { await this.plugin.persist(); this.refreshChats(); this.renderMessages(); }
-        catch (error) { this.plugin.state.activeId = previous; new Notice(`切换会话保存失败：${String(error)}`); throw error; }
+        this.changing = true; this.refreshStatus();
+        try { await this.plugin.selectChat(id); this.refreshChats(); this.renderMessages(); }
+        catch (error) { new Notice(`切换会话保存失败：${String(error)}`); throw error; }
         finally { this.changing = false; this.refreshStatus(); }
       });
     this.iconButton(actionsHeader, 'settings-2', '连接与首次使用引导', () => new SetupModal(this.plugin, () => { this.renderModels(); this.renderMessages(); }).open());
@@ -243,10 +249,10 @@ export class LearningView extends ItemView {
     this.markdown.unload(); this.markdown.load(); this.messages.empty(); this.answerEl = undefined;
     this.reasoningEl = undefined; this.executionEl = undefined; this.reasoningDetails = undefined; this.executionCount = -1;
     const chat = this.plugin.chat;
-    if (!this.plugin.state.settings.setupComplete) {
+    if (!this.plugin.state.settings.setupComplete && !this.plugin.selectedRoute) {
       const onboarding = this.messages.createDiv('ds-onboarding');
       onboarding.createEl('strong', { text: '连接本地 DeepSeek Harness' });
-      onboarding.createEl('p', { text: '安装运行时 → 配置模型 → 检查连接。打开侧栏不会自动启动运行时。' });
+      onboarding.createEl('p', { text: this.plugin.state.settings.autoConnect ? '将自动连接本机 DSH；若无法连接，可打开引导检查安装和模型配置。' : '自动连接已关闭。发送消息时连接，也可打开引导检查安装和模型配置。' });
       onboarding.createEl('button', { text: '开始设置', cls: 'mod-cta' }).onclick = () => new SetupModal(this.plugin, () => { this.renderModels(); this.renderMessages(); }).open();
     }
     if (this.mode === 'trace') { this.renderTrace(); return; }
@@ -309,7 +315,7 @@ export class LearningView extends ItemView {
     try { target.empty(); await MarkdownRenderer.render(this.app, message.text, target, '', this.markdown); if (follow) this.messages.scrollTop = this.messages.scrollHeight; }
     finally { this.rendering = false; if (this.renderAgain) { this.renderAgain = false; this.scheduleAnswer(); } }
   }
-  async onClose() { this.closed = true; this.history?.dispose(); clearTimeout(this.timer); this.plugin.detach(this); this.markdown.unload(); }
+  async onClose() { this.closed = true; this.focusCleanup?.(); this.history?.dispose(); clearTimeout(this.timer); this.plugin.detach(this); this.markdown.unload(); }
 }
 
 class VaultPicker extends FuzzySuggestModal<TFile> {
