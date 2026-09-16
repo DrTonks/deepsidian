@@ -166,3 +166,10 @@
 .ds-memory-maintenance button { margin:0 8px 8px 0; }
 .ds-memory-maintenance small { display:block; }
 @media (max-width:600px) { .ds-memory-layout { grid-template-columns:1fr; } .ds-memory-list { max-height:180px; border-right:0; border-bottom:1px solid var(--background-modifier-border); } .ds-memory-modal { width:100%; } }
+.ds-memory-session-row { padding:14px 0; border-bottom:1px solid var(--background-modifier-border); margin-bottom:14px; }
+.ds-memory-session-row p { color:var(--text-muted); font-size:13px; line-height:1.6; }
+.ds-memory-session-row button[aria-pressed="true"] { color:var(--interactive-accent); }
+.ds-memory-proposal { border:1px solid var(--background-modifier-border); border-radius:8px; padding:14px; margin:14px 0; }
+.ds-memory-proposal label { display:flex; align-items:center; gap:8px; font-weight:600; margin-bottom:12px; }
+.ds-memory-proposal small { color:var(--text-muted); }
+.ds-proposal-text { white-space:pre-wrap; overflow-wrap:anywhere; max-height:220px; overflow:auto; padding:10px; background:var(--background-secondary); font-family:var(--font-text); }

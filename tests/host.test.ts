@@ -6,8 +6,8 @@ import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 await mkdir('.runs',{recursive:true});const dir=await mkdtemp(resolve('.runs/host-test-'));
 const outfile=join(dir,'host.mjs');
-await build({entryPoints:['src/plugin/main.ts'],outfile,bundle:true,platform:'node',format:'esm',alias:{obsidian:resolve('tests/host-obsidian.ts')}});
-const Base=(await import(pathToFileURL(outfile).href)).default;
+await build({stdin:{contents:"export {default} from './src/plugin/main.ts'; export {DshClient} from './src/plugin/dsh.ts'; export {FileSystemAdapter} from 'obsidian';",resolveDir:process.cwd()},outfile,bundle:true,platform:'node',format:'esm',alias:{obsidian:resolve('tests/host-obsidian.ts')}});
+const {default:Base,DshClient,FileSystemAdapter}=await import(pathToFileURL(outfile).href);
 class Deepsidian extends Base { constructor(){super();this.state.settings.useMemory=false;} }
 test('auto connection waits for layout, honors opt-out, and ignores late layout after unload',async()=>{
   const old=(globalThis as any).window;(globalThis as any).window={setInterval:()=>0};
@@ -185,4 +185,82 @@ test('memory tool output has a per-turn budget and never falls back to foreign p
     return {kind:'completed'};
   }});
   await p.ask('question');assert.equal(p.chat.messages.at(-1).status,'完成');
+});
+
+test('session memory policy persists independently, blocks contribution, and respects the vault switch', async () => {
+  const p=new Deepsidian();p.state.settings.useMemory=true;p.state.chats=[{id:'a',title:'a',messages:[]},{id:'b',title:'b',messages:[]}];p.state.activeId='a';p.capture=()=>{};
+  let disk:any;p.saveData=async(s:any)=>{disk=structuredClone(s);};
+  await p.setChatMemory('a',{useMemory:false,contributeMemory:false});
+  assert.equal(disk.chats[0].useMemory,false);assert.equal(p.state.chats[1].useMemory,undefined);
+  p.memory=()=>{throw Error('must not access store');};
+  await assert.rejects(()=>p.runCommand('/remember secret'),/关闭记忆贡献/);
+  p.connect=async()=>({options:{model:'test'},prompt:async(_id:string,text:string)=>{assert.match(text,/长期记忆读取已关闭/);return {kind:'completed'};}});
+  await p.ask('question');assert.equal(p.chat.messages.at(-1).status,'完成');
+  await p.setChatMemory('a',{useMemory:true});p.state.settings.useMemory=false;
+  await p.ask('question');assert.equal(p.chat.messages.at(-1).status,'完成');
+  assert.equal(p.chat.contributeMemory,false);
+  await p.newChat();assert.equal(p.chat.useMemory,undefined);assert.equal(p.chat.contributeMemory,undefined);
+});
+
+test('session policy saves are atomic and cannot race a question or remember command', async () => {
+  const p=new Deepsidian();p.state.chats=[{id:'a',title:'a',messages:[]}];p.state.activeId='a';
+  let reject!:(e:Error)=>void,entered!:()=>void;
+  const started=new Promise<void>(r=>entered=r);
+  p.saveData=()=>{entered();return new Promise<void>((_r,j)=>reject=j);};
+  const pending=p.setChatMemory('a',{useMemory:false});const failed=assert.rejects(pending,/disk full/);await started;
+  assert.equal(p.chat.useMemory,undefined);
+  await p.ask('must not send');assert.equal(p.chat.messages.length,0);
+  await assert.rejects(()=>p.runCommand('/remember secret'),/结束当前操作/);
+  await assert.rejects(()=>p.setChatMemory('a',{contributeMemory:false}),/结束当前回答/);
+  reject(Error('disk full'));await failed;assert.equal(p.busy,false);assert.equal(p.chat.useMemory,undefined);
+  p.saveData=async()=>{};await p.setChatMemory('a',{useMemory:false});assert.equal(p.chat.useMemory,false);
+});
+
+test('M2 generates without writes, confirms selected changes, rejects stale or opted-out sources',async()=>{
+  const {MemoryStore}=await import('../src/plugin/memory/store.ts');
+  const root=await mkdtemp(resolve('.runs/proposal-host-'));const store=new MemoryStore(join(root,'memory'));
+  const p=new Deepsidian();p.state.chats=[{id:'a',title:'a',messages:[{role:'user',text:'请用前端例子'}]}];p.state.activeId='a';p.memory=()=>store;
+  p.runMemoryModel=async(prompt:string)=>{const input=JSON.parse(prompt.split('\n').at(-1)!);return JSON.stringify({proposals:[{kind:'add',text:'偏好前端例子',reason:'明确要求',evidence:[{key:input.sources[0].key,quote:'前端例子'}]}]});};
+  const batch=await p.extractMemory('a',new AbortController().signal);assert.equal(p.busy,false);assert.equal((await store.snapshot()).entries.length,0);
+  await p.setChatMemory('a',{contributeMemory:false});await assert.rejects(()=>p.applyMemoryProposals(batch,[0]),/关闭贡献/);
+  await p.setChatMemory('a',{contributeMemory:true});p.chat.messages[0].text='changed';await assert.rejects(()=>p.applyMemoryProposals(batch,[0]),/来源消息已改变/);p.chat.messages[0].text='请用前端例子';
+  await assert.rejects(()=>p.applyMemoryProposals(batch,[]),/选择/);await p.applyMemoryProposals(batch,[0]);assert.equal((await store.snapshot()).entries[0].text,'偏好前端例子');
+  await assert.rejects(()=>p.applyMemoryProposals(batch,[0]),/已改变/);
+  const snap=await store.snapshot();await store.update(snap.revision,{remove:snap.entries[0].id});
+  let calls=0;p.runMemoryModel=async()=>{calls++;return '{}';};await assert.rejects(()=>p.extractMemory('a',new AbortController().signal),/没有可提炼/);assert.equal(calls,0);
+});
+
+test('M2 cancellation before dispatch and during model call never produces a committable batch',async()=>{
+  const {MemoryStore}=await import('../src/plugin/memory/store.ts');
+  const root=await mkdtemp(resolve('.runs/proposal-cancel-'));const p=new Deepsidian();p.memory=()=>new MemoryStore(join(root,'memory'));
+  p.state.chats=[{id:'a',title:'a',messages:[{role:'user',text:'use examples'}]}];p.state.activeId='a';let calls=0;
+  p.runMemoryModel=async()=>{calls++;return '{"proposals":[]}';};
+  const early=new AbortController();early.abort();await assert.rejects(()=>p.extractMemory('a',early.signal));assert.equal(calls,0);assert.equal(p.busy,false);
+  let entered!:()=>void,finish!:(s:string)=>void;const started=new Promise<void>(r=>entered=r);
+  p.runMemoryModel=()=>{entered();return new Promise<string>(r=>finish=r);};
+  const controller=new AbortController(),pending=p.extractMemory('a',controller.signal);const rejected=assert.rejects(pending);await started;controller.abort();finish('{"proposals":[]}');await rejected;assert.equal(p.busy,false);
+});
+
+test('model catalogue failure preserves a successfully connected runtime and current model',async()=>{
+  const p=new Deepsidian();p.state.settings.checkUpdates=false;
+  p.app.vault={adapter:Object.assign(new FileSystemAdapter(),{getBasePath:()=>dir}),configDir:'.obsidian'};
+  p.resolveEnvironment=()=>({root:dir,node:process.execPath,home:dir,versions:{dsh:'0.1.5-rc.2'},model:{provider:'local',model:'available'}});
+  const original={start:DshClient.prototype.start,models:DshClient.prototype.models,stop:DshClient.prototype.stop,prompt:DshClient.prototype.prompt};let stopped=0;
+  try {
+    DshClient.prototype.start=async function(){Object.defineProperty(this,'connected',{value:true});};
+    DshClient.prototype.models=async()=>{throw Error('Unselected provider catalogue failed');};
+    DshClient.prototype.stop=async()=>{stopped++;};DshClient.prototype.prompt=async()=>({kind:'completed'});
+    const client=await p.connect();assert.equal(stopped,0);assert.equal(client,p.client);assert.equal(p.selectedRoute.model,'available');assert.match(p.status,/目录暂不可用/);
+    assert.equal((await client.prompt('id','question')).kind,'completed');
+  } finally {Object.assign(DshClient.prototype,original);}
+});
+
+test('M2 confirms only selected corrections and preserves identity plus previous evidence',async()=>{
+  const {MemoryStore}=await import('../src/plugin/memory/store.ts');const root=await mkdtemp(resolve('.runs/proposal-edit-'));const store=new MemoryStore(join(root,'memory'));
+  let snap=await store.snapshot();await store.update(snap.revision,{batch:[{text:'使用Java例子',source:'prior confirmation',sourceKeys:['b'.repeat(64)]}]});snap=await store.snapshot();const id=snap.entries[0].id;
+  const p=new Deepsidian();p.state.chats=[{id:'a',title:'a',messages:[{role:'user',text:'更正，请用前端例子。请简短回答。'}]}];p.state.activeId='a';p.memory=()=>store;
+  p.runMemoryModel=async(prompt:string)=>{const input=JSON.parse(prompt.split('\n').at(-1)!);return JSON.stringify({proposals:[{kind:'edit',id,text:'使用前端例子',reason:'用户明确更正',evidence:[{key:input.sources[0].key,quote:'更正，请用前端例子'}]},{kind:'add',text:'偏好简短回答',reason:'明确偏好',evidence:[{key:input.sources[0].key,quote:'请简短回答'}]}]});};
+  const batch=await p.extractMemory('a',new AbortController().signal);await p.applyMemoryProposals(batch,[0]);snap=await store.snapshot();
+  assert.equal(snap.entries.length,1);assert.equal(snap.entries[0].id,id);assert.equal(snap.entries[0].text,'使用前端例子');assert.equal(snap.entries[0].sourceKeys.length,2);
+  await store.update(snap.revision,{remove:id});assert.equal((await store.snapshot()).excludedSources.length,2);
 });

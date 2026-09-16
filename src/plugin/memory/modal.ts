@@ -16,9 +16,11 @@ export class MemoryModal extends Modal {
   private focusKey?: string;
   private maintenanceOpen = false;
   private drafts: Map<string,string>;
-  constructor(readonly plugin: Deepsidian, private tab: 'entries'|'rules' = 'entries') {
+  private readonly chatId?: string;
+  constructor(readonly plugin: Deepsidian, private tab: 'entries'|'rules'|'session' = 'entries') {
     super(plugin.app);
     this.drafts = plugin.memoryDrafts ?? new Map();
+    this.chatId = plugin.chat?.id;
     this.selected = [...this.drafts.keys()].find(key => key !== 'rules');
   }
   onOpen() { this.closed = false; this.contentEl.addClass('ds-memory-modal'); this.modalEl?.addClass('ds-memory-dialog'); void this.refresh(); }
@@ -76,12 +78,13 @@ export class MemoryModal extends Modal {
     header.createEl('h2', {text:'本库记忆'});
     header.createEl('p', {cls:'ds-memory-subtitle',text:this.plugin.state.settings.useMemory ? '同一知识库共享 · 保存后从下一次提问生效' : '同一知识库共享 · 当前已关闭记忆读取，可在设置开启'});
     const tabs = root.createDiv({cls:'ds-memory-tabs',attr:{role:'group','aria-label':'记忆管理页面'}});
-    for(const [id,label] of [['entries','记忆'],['rules','整理规则']] as const) {
+    for(const [id,label] of [['entries','记忆'],['rules','整理规则'],['session','本会话']] as const) {
       const button = this.button(tabs,label,()=>{this.tab=id;this.focusKey=label;this.confirming=false;this.saved='';this.render();});
       button.setAttribute('aria-pressed',String(this.tab===id));
     }
     const feedback = root.createDiv({cls:'ds-memory-feedback',attr:{role:this.error?'alert':'status','aria-live':'polite'}});
     feedback.setText(this.error || (this.busy ? '正在处理…' : this.saved));
+    if(this.tab === 'session') { this.renderSession(root); return; }
     if(!this.snapshot || this.needsRefresh) {
       if(this.needsRefresh) root.createEl('pre',{text:this.committedText});
       const retry=this.button(root,'重新读取',()=>void this.refresh()); retry.disabled=this.busy;
@@ -98,11 +101,42 @@ export class MemoryModal extends Modal {
     this.button(more,'重建本地索引',()=>void this.action(()=>this.plugin.memory().update(this.snapshot!.revision,{organize:true})));
     more.createEl('small',{text:'重建索引不调用模型，也不合并或提炼记忆。'});
   }
+  private renderSession(root: HTMLElement) {
+    const chat=this.plugin.state.chats?.find(c=>c.id===this.chatId);
+    if(!chat) {root.createEl('p',{text:'会话不存在，请关闭窗口后重新打开。'});return;}
+    root.createEl('h3',{text:chat.title});
+    root.createEl('p',{text:'设置只影响此会话，从下一次提问生效。新会话使用默认设置。'});
+    const set=async(change:{useMemory?:boolean;contributeMemory?:boolean})=>{
+      if(this.busy)return;
+      this.busy=true;this.error='';this.render();
+      try {await this.plugin.setChatMemory(chat.id,change);this.saved='会话设置已保存';}
+      catch(error){this.error=String(error);}
+      finally{this.busy=false;this.render();}
+    };
+    for(const [key,label,description] of [
+      ['useMemory','读取本库记忆','为回答提供已存偏好和相关记忆；知识库总开关关闭时，此处不能恢复读取。'],
+      ['contributeMemory','允许本会话贡献记忆','控制 /remember 保存和 /extract 提案生成、确认。当前不会自动提炼聊天。'],
+    ] as const) {
+      const row=root.createDiv('ds-memory-session-row');
+      row.createEl('strong',{text:label});row.createEl('p',{text:description});
+      const enabled=chat[key]!==false;
+      const button=this.button(row,`${label}：${enabled?'开启':'关闭'}`,()=>void set({[key]:!enabled}));
+      button.setAttribute('aria-pressed',String(enabled));
+      button.setAttribute('data-memory-focus',`policy:${key}`);
+      button.disabled=this.busy;
+    }
+    const temporary=this.button(root,'关闭本会话的读取与贡献',()=>void set({useMemory:false,contributeMemory:false}));
+    temporary.disabled=this.busy;
+    root.createEl('p',{text:'这不是无痕聊天：聊天与 DSH 历史仍会保存；关闭读取不会擦除已经发送的内容。记忆管理页的直接编辑是独立的人工操作。'});
+    if(!this.plugin.state.settings.useMemory)root.createEl('p',{text:'知识库总开关当前已关闭，所有会话均不读取长期记忆。'});
+    root.createEl('p',{text:'回答进行中不能修改设置，请在回答结束后操作。'});
+  }
   private renderEntries(root: HTMLElement) {
     const toolbar = root.createDiv('ds-memory-toolbar');
     const search = toolbar.createEl('input',{attr:{type:'search','aria-label':'搜索记忆','data-memory-focus':'搜索记忆',placeholder:'搜索内容或来源…'}});
     search.value = this.query; search.disabled = this.busy;
     this.button(toolbar,'新增记忆',()=>this.select('add'),'mod-cta');
+    this.button(toolbar,'从会话提炼',()=>{this.close();this.plugin.openOrganizer();});
     const body = root.createDiv('ds-memory-layout');
     const list = body.createDiv('ds-memory-list');
     const drawList = () => {
@@ -138,7 +172,7 @@ export class MemoryModal extends Modal {
     if(entry) {
       const danger = editor.createDiv('ds-memory-danger');
       if(this.confirming) {
-        danger.createEl('p',{text:'删除这条记忆？下次提问将不再读取，旧聊天历史仍保留。'});
+        danger.createEl('p',{text:`删除这条记忆？下次提问将不再读取，旧聊天历史仍保留。${entry.sourceKeys?.length?'这条记忆的来源消息也将排除在后续提炼之外（该消息中的其他事实同样不会再提炼）。':''}`});
         this.button(danger,'确认删除',()=>void this.action(()=>this.plugin.memory().update(this.snapshot!.revision,{remove:entry.id}),undefined,entry.id),'mod-warning');
         this.button(danger,'取消删除',()=>{this.confirming=false;this.render();});
       } else this.button(danger,'删除记忆',()=>{this.confirming=true;this.render();});
@@ -146,7 +180,7 @@ export class MemoryModal extends Modal {
   }
   private renderRules(root: HTMLElement) {
     const editor = root.createDiv('ds-memory-rules');
-    editor.createEl('p',{cls:'ds-memory-subtitle',text:'用于未来的模型整理器；当前不会执行这些规则，也不会自动改写记忆。'});
+    editor.createEl('p',{cls:'ds-memory-subtitle',text:'用于 /extract 手动模型提炼，保存后下次生成提案时生效。规则不进入普通对话，也不能绕过来源校验和人工确认。'});
     this.renderEditor(editor,'rules',this.snapshot!.rules,12000,'记忆整理规则');
   }
   private renderEditor(parent: HTMLElement, key: string, original: string, limit: number, label: string) {

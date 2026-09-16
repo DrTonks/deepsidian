@@ -158,3 +158,29 @@ test('real DSH memory search/read follows corrected and deleted snapshots across
     assert.deepEqual(calls,['memory_search','memory_read','memory_search','memory_read']);
   } finally {await client.stop();server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));oldUrl===undefined?delete process.env.DEEPSEEK_BASE_URL:process.env.DEEPSEEK_BASE_URL=oldUrl;oldKey===undefined?delete process.env.DEEPSEEK_API_KEY:process.env.DEEPSEEK_API_KEY=oldKey;}
 });
+
+test('real DSH memory organizer has no tools, isolates requests, and cancels without a result', {timeout:60000},async()=>{
+  const {runOrganizer}=await import('../src/plugin/memory/organizer.ts');
+  const env=discover();const dir=mkdtempSync(resolve('.runs','organizer-test-'));const home=join(dir,'config');mkdirSync(home);writeFileSync(join(home,'settings.yaml'),'{}');
+  let requests=0,hold=false,held!:()=>void;
+  const server=createServer(async(req,res)=>{
+    let body='';for await(const chunk of req)body+=chunk;
+    const input=JSON.parse(body);requests++;
+    assert.equal((input.tools??[]).length,0);
+    assert.ok(input.messages.some((m:any)=>typeof m.content==='string'&&m.content.includes('记忆提案整理器')));
+    res.writeHead(200,{'Content-Type':'text/event-stream'});
+    const chunk=(delta:object,finish_reason:string|null=null)=>res.write(`data: ${JSON.stringify({id:'test',object:'chat.completion.chunk',created:0,model:'deepseek-chat',choices:[{index:0,delta,finish_reason}]})}\n\n`);
+    if(hold){held();chunk({content:'partial'});return;}
+    chunk({content:'{"proposals":[]}'});chunk({},'stop');res.end('data: [DONE]\n\n');
+  });
+  server.listen(0,'127.0.0.1');await once(server,'listening');
+  const oldUrl=process.env.DEEPSEEK_BASE_URL,oldKey=process.env.DEEPSEEK_API_KEY;
+  process.env.DEEPSEEK_BASE_URL=`http://127.0.0.1:${(server.address() as any).port}`;process.env.DEEPSEEK_API_KEY='local-test-key';
+  const options={packageRoot:env.root,nodePath:env.node,dshHome:home,runtimeHome:join(dir,'runtime'),bridgePath:resolve('src/plugin/bridge.mjs'),cwd:resolve('fixtures'),provider:'deepseek-official',model:'deepseek-chat',webSearch:true,webFetch:true};
+  try {
+    const early=new AbortController();early.abort();await assert.rejects(()=>runOrganizer(options,'test',early.signal));assert.equal(requests,0);
+    const starting=new AbortController();const initializing=runOrganizer(options,'must not send',starting.signal);const stopped=assert.rejects(initializing);starting.abort();await stopped;assert.equal(requests,0);
+    assert.deepEqual(JSON.parse(await runOrganizer(options,'synthetic task',new AbortController().signal)),{proposals:[]});assert.equal(requests,1);
+    hold=true;const entered=new Promise<void>(r=>held=r);const cancel=new AbortController();const pending=runOrganizer(options,'synthetic cancel',cancel.signal);const rejected=assert.rejects(pending);await entered;cancel.abort();await rejected;
+  } finally {server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));oldUrl===undefined?delete process.env.DEEPSEEK_BASE_URL:process.env.DEEPSEEK_BASE_URL=oldUrl;oldKey===undefined?delete process.env.DEEPSEEK_API_KEY:process.env.DEEPSEEK_API_KEY=oldKey;}
+});

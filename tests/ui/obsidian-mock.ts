@@ -35,9 +35,10 @@ export const MarkdownRenderer = {async render(_app:any,text:string,target:HTMLEl
   for(const paragraph of text.split('\n\n')) create(target,'p',{text:paragraph});
 }};
 export class Modal {
+  get modalEl(){return this.contentEl;}
   contentEl:HTMLElement; private overlay:HTMLElement; app:any;
   constructor(app:any){this.app=app;this.overlay=create(document.body,'div',{cls:'preview-modal-layer'});this.overlay.hidden=true;this.contentEl=create(this.overlay,'div',{cls:'preview-modal'});}
-  open(){this.overlay.hidden=false;(this as any).onOpen?.();} close(){this.overlay.remove();}
+  open(){this.overlay.hidden=false;(this as any).onOpen?.();} close(){(this as any).onClose?.();this.overlay.remove();}
 }
 export class FuzzySuggestModal<T> extends Modal {setPlaceholder(_s:string){} }
 export class Setting {

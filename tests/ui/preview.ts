@@ -6,9 +6,11 @@ import { traceEntry } from '../../src/plugin/trace';
 import { WHALE_ICON } from '../../src/plugin/logo';
 import { addIcon } from './obsidian-mock';
 import {MemoryModal} from '../../src/plugin/memory/modal';
+import {OrganizerModal} from '../../src/plugin/memory/organizer-modal';
 import {parseCommand} from '../../src/plugin/commands';
 import type { Chat } from '../../src/plugin/types';
 import { checkHistory } from './history-checks';
+import { checkAttachments } from './attachment-checks';
 
 addIcon('deepsidian-whale',WHALE_ICON);
 const start=Date.UTC(2026,8,13,2,0,0);
@@ -32,6 +34,10 @@ let memoryEntries=[{id:'preview',text:'熟悉前端，首次出现的 agent 术�
 let memoryRules='# 整理规则\n仅保存用户明确表达的持久偏好。';
 const plugin:any={
  memoryDrafts:new Map(),
+ async setChatMemory(id:string,change:any){Object.assign(this.state.chats.find((c:Chat)=>c.id===id),change);},
+ openOrganizer(){new OrganizerModal(this).open();},
+ async extractMemory(){return {chatId:chat.id,title:chat.title,snapshot:await this.memory().snapshot(),sources:[{key:'demo',index:0,text:'请使用前端例子；技术词首次出现时请解释。'}],proposals:[{kind:'edit',id:'preview',text:'熟悉前端；技术词首次出现时配简短解释和一个前端例子。',reason:'用户明确的解释偏好，建议补充已有条目。',evidence:[{key:'demo',quote:'技术词首次出现时请解释'}]},{kind:'add',text:'解释复杂概念时偏好前端例子。',reason:'合成预览：用于展示多项提案勾选。',evidence:[{key:'demo',quote:'请使用前端例子'}]}]};},
+ async applyMemoryProposals(){},
  state:{settings:{...defaults,setupComplete:screen!=='setup',background:'熟悉前端，正在了解 Transformer。'},chats:[chat],activeId:chat.id},
  get chat(){return this.state.chats.find((c:Chat)=>c.id===this.state.activeId);},
  models:[{provider:'deepseek-official',model:'deepseek-flash',name:'DeepSeek-V41-Flash',inputModalities:['text','image'],reasoning:{efforts:[{id:'off',name:'关闭'},{id:'high',name:'High'},{id:'max',name:'Max'}]}}],
@@ -51,6 +57,8 @@ const plugin:any={
 const view=new LearningView({app:plugin.app,container:document.getElementById('app')} as any,plugin);
 await view.onOpen();
 if(screen==='history-tests') await checkHistory(document.body.createDiv());
+if(screen==='attachment-tests')await checkAttachments(view,plugin,document.body.createDiv());
 if(screen==='trace') Array.from(document.querySelectorAll<HTMLButtonElement>('.ds-tabs button')).find(b=>b.textContent==='轨迹')?.click();
 if(screen==='setup') new SetupModal(plugin).open();
+if(screen==='organizer')new OrganizerModal(plugin).open();
 document.body.dataset.ready='true';

@@ -20,6 +20,9 @@ import { MemoryStore } from './memory/store';
 import { MemoryModal } from './memory/modal';
 import { prepareRecall, readRecall, MEMORY_DISABLED, type Recall } from './memory/recall';
 import { commands, parseCommand } from './commands';
+import { extractionSources, extractionPrompt, parseProposals, sourceKey, type ProposalBatch } from './memory/proposals';
+import { runOrganizer } from './memory/organizer';
+import { OrganizerModal } from './memory/organizer-modal';
 
 export default class Deepsidian extends Plugin {
   state: Saved = { settings: { ...defaults }, chats: [], activeId: '' };
@@ -50,6 +53,7 @@ export default class Deepsidian extends Plugin {
   private disconnecting?: Promise<void>;
   private memoryStore?: MemoryStore;
   private activeRecall?: Recall;
+  private organizerAbort?:AbortController;
   private memoryReadChars = 0;
   readonly memoryDrafts = new Map<string,string>();
   private autoAttempt?: Promise<void>;
@@ -87,7 +91,7 @@ export default class Deepsidian extends Plugin {
     });
     this.registerInterval(window.setInterval(() => this.maintainConnection(), 1000));
   }
-  onunload() { this.disposed = true; void this.client?.stop(); }
+  onunload() { this.disposed = true; this.organizerAbort?.abort(); void this.client?.stop(); }
   memory(){
     if(!this.memoryStore){
       if(!(this.app.vault.adapter instanceof FileSystemAdapter))throw Error('记忆仅支持桌面本地库');
@@ -96,12 +100,62 @@ export default class Deepsidian extends Plugin {
     return this.memoryStore;
   }
   openMemory(tab:'entries'|'rules'='entries'){new MemoryModal(this,tab).open();}
+  openOrganizer(){new OrganizerModal(this).open();}
+  async extractMemory(chatId:string,signal:AbortSignal):Promise<ProposalBatch> {
+    if(this.busy || this.disposed)throw Error('请先结束当前操作');
+    const chat=this.state.chats.find(c=>c.id===chatId);if(!chat)throw Error('会话不存在');
+    if(chat.contributeMemory===false)throw Error('本会话已关闭记忆贡献');
+    this.busy=true;const controller=new AbortController();this.organizerAbort=controller;
+    const abort=()=>controller.abort();signal.addEventListener('abort',abort,{once:true});
+    if(signal.aborted)abort();this.view?.refreshStatus();
+    try {
+      const frozen=structuredClone(chat),snapshot=await this.memory().snapshot();
+      const sources=extractionSources(frozen,snapshot.excludedSources),prompt=extractionPrompt(snapshot,sources);
+      controller.signal.throwIfAborted();
+      const raw=await this.runMemoryModel(prompt,controller.signal);
+      controller.signal.throwIfAborted();
+      return {chatId,title:frozen.title,snapshot,sources,proposals:parseProposals(raw,snapshot,sources)};
+    } finally {signal.removeEventListener('abort',abort);this.organizerAbort=undefined;this.busy=false;this.view?.refreshStatus();}
+  }
+  private async runMemoryModel(prompt:string,signal:AbortSignal) {
+    const env=this.resolveEnvironment();
+    if(!(this.app.vault.adapter instanceof FileSystemAdapter))throw Error('仅支持桌面端');
+    const base=this.app.vault.adapter.getBasePath();
+    const directory=join(base,this.manifest.dir??`${this.app.vault.configDir}/plugins/${this.manifest.id}`);
+    return runOrganizer({packageRoot:env.root,nodePath:env.node,dshHome:env.home,runtimeHome:join(directory,'.memory-runtime'),bridgePath:join(directory,'bridge.mjs'),cwd:base,...env.model},prompt,signal);
+  }
+  async applyMemoryProposals(batch:ProposalBatch,selected:number[]) {
+    if(this.busy || this.disposed)throw Error('请先结束当前操作');
+    this.busy=true;
+    try {
+      const chat=this.state.chats.find(c=>c.id===batch.chatId);
+      if(!chat || chat.contributeMemory===false)throw Error('来源会话不存在或已关闭贡献');
+      if(!selected.length || new Set(selected).size!==selected.length || selected.some(i=>!Number.isInteger(i)||!batch.proposals[i]))throw Error('请选择有效提案');
+      for(const source of batch.sources) {
+        const message=chat.messages[source.index];
+        if(!message || message.role!=='user' || sourceKey(chat.id,source.index,message.text)!==source.key)throw Error('来源消息已改变，请重新生成提案');
+      }
+      const snapshot=await this.memory().snapshot();
+      if(snapshot.revision!==batch.snapshot.revision)throw Error('记忆或规则已改变，请重新生成提案');
+      const proposals=parseProposals(JSON.stringify({proposals:selected.map(i=>batch.proposals[i])}),snapshot,batch.sources);
+      await this.memory().update(snapshot.revision,{batch:proposals.map(p=>({id:p.id,text:p.text,source:`模型提案，经用户确认 · 会话 ${batch.chatId}`,sourceKeys:p.evidence.map(e=>e.key)}))});
+    } finally {this.busy=false;this.view?.refreshStatus();}
+  }
+  async setChatMemory(id: string, change: {useMemory?: boolean; contributeMemory?: boolean}) {
+    if(this.busy) throw Error('请先结束当前回答，再修改会话记忆设置');
+    const chat = this.state.chats.find(c => c.id === id);
+    if(!chat) throw Error('会话不存在');
+    const patch = Object.fromEntries(Object.entries(change).filter(([key,value]) => ['useMemory','contributeMemory'].includes(key) && typeof value === 'boolean'));
+    this.busy=true;
+    try {await this.saveChange(draft => {Object.assign(draft.chats.find(c => c.id === id)!,patch);}, () => {Object.assign(chat,patch);});}
+    finally {this.busy=false;this.view?.refreshStatus();}
+  }
   async organizeMemory(){const s=await this.memory().snapshot();await this.memory().update(s.revision,{organize:true});new Notice('已重建记忆索引；未调用模型或提炼聊天');}
   async runCommand(text:string):Promise<{question?:string}> {
     const command=parseCommand(text); if(!command)throw Error('指令格式无效，输入 / 查看指令');
     const {name,args}=command;
     if(!commands.some(c=>c.name===name))throw Error(`未知指令 /${name}；输入 / 查看可用指令`);
-    if(['memory','rules','organize','new','connect','help'].includes(name) && args)throw Error(`/${name} 不接受参数`);
+    if(['memory','rules','organize','extract','new','connect','help'].includes(name) && args)throw Error(`/${name} 不接受参数`);
     if(this.busy && ['plan','goal','new','connect'].includes(name))throw Error('请先结束当前回答');
     if(name==='plan'){if(!args)throw Error('用法：/plan 要规划的问题');return {question:`请先为以下问题制定可检查的计划，说明目标、步骤、依赖和验收条件。本轮仅研究和规划，不执行实施步骤。\n\n${args}`};}
     if(name==='goal'){
@@ -112,10 +166,20 @@ export default class Deepsidian extends Plugin {
       await this.saveChange(draft => { draft.chats.find(c => c.id === chat.id)!.goal = goal; }, () => { chat.goal = goal; });
       new Notice(args==='clear'?'已清除会话目标':'已设置本会话目标；后续提问会带入，不自动续跑');return {};
     }
-    if(name==='remember') {if(!args)throw Error('用法：/remember 要记住的内容');const s=await this.memory().snapshot();await this.memory().update(s.revision,{add:args,source:`显式 /remember · 会话 ${this.chat?.id??''}`});new Notice('已保存到本库记忆；下次提问时可读取');}
+    if(name==='remember') {
+      if(!args)throw Error('用法：/remember 要记住的内容');
+      if(this.busy)throw Error('请先结束当前操作');
+      const chat=this.chat;
+      if(!chat || chat.contributeMemory===false) throw Error('本会话已关闭记忆贡献；可在 /memory 的“本会话”中修改');
+      this.busy=true;
+      try {const s=await this.memory().snapshot();
+        await this.memory().update(s.revision,{add:args,source:`显式 /remember · 会话 ${chat.id}`});new Notice('已保存到本库记忆；下次提问时可读取');}
+      finally {this.busy=false;this.view?.refreshStatus();}
+    }
     if(name==='memory')this.openMemory();
     if(name==='rules')this.openMemory('rules');
     if(name==='organize')await this.organizeMemory();
+    if(name==='extract')this.openOrganizer();
     if(name==='new')await this.newChat();
     if(name==='connect')await this.connect();
     if(name==='help')new Notice(commands.map(c=>`/${c.name} ${c.hint} — ${c.description}`).join('\n'),15000);
@@ -221,11 +285,15 @@ export default class Deepsidian extends Plugin {
     this.client = new DshClient({ packageRoot: env.root, nodePath: env.node, dshHome: env.home, runtimeHome: join(directory, '.runtime'), bridgePath: join(directory, 'bridge.mjs'), cwd: base, ...env.model, reasoningEffort: this.state.settings.reasoningEffort, maxTokens: this.state.settings.maxTokens, webSearch: this.state.settings.webSearch, webFetch: this.state.settings.webFetch },
       (name, args) => this.handleTool(name, args), (method, data) => this.onRuntime(method, data));
     const client=this.client;
-    try {await client.start(); this.models = await client.models(); if(this.disposed)throw Error('插件已关闭');}
+    try {await client.start(); if(this.disposed)throw Error('插件已关闭');}
     catch(error){await client.stop();if(this.client===client)this.client=undefined;throw error;}
     this.selectedRoute = env.model;
+    let catalogWarning='';
+    try {this.models=await client.models();}
+    catch {this.models=[env.model];catalogWarning=' · 模型目录暂不可用，保留当前模型；可重连重试';}
+    if(this.disposed || !client.connected){await client.stop();if(this.client===client)this.client=undefined;throw Error('DSH 连接已结束');}
     if (this.state.settings.checkUpdates) void this.update(false).catch(() => {});
-    this.status = `${env.model.model} · DSH ${env.versions.dsh}${Object.values(env.versions).every(v => v === TESTED_DSH) ? '' : ' · 此版本未验证'}`;
+    this.status = `${env.model.model} · DSH ${env.versions.dsh}${Object.values(env.versions).every(v => v === TESTED_DSH) ? '' : ' · 此版本未验证'}${catalogWarning}`;
     this.view?.refreshConnection(); return client;
   }
   async disconnect() {
@@ -279,7 +347,7 @@ export default class Deepsidian extends Plugin {
     this.busy = true; this.stopRequested = false; this.activeSource = source;
     this.activeRecall = undefined; this.memoryReadChars = 0; this.view?.refreshStatus();
     try {
-      if(this.state.settings.useMemory) this.activeRecall = prepareRecall(await this.memory().snapshot(), question);
+      if(this.state.settings.useMemory && chat.useMemory!==false) this.activeRecall = prepareRecall(await this.memory().snapshot(), question);
       prompt += '\n\n' + (this.activeRecall?.prompt ?? MEMORY_DISABLED);
       if(prompt.length>40000) throw Error('包含记忆后上下文超过40000字符，请减少附件或选区');
       if(this.disposed || this.stopRequested) throw Error('已在发送前停止');
@@ -305,7 +373,7 @@ export default class Deepsidian extends Plugin {
     } catch (error) { answer.status = this.stopRequested ? '已停止' : '失败'; answer.text += `\n\n${String(error)}`; }
     finally { this.lastUsed = Date.now(); answer.elapsedMs = Date.now() - answer.startedAt!; this.busy = false; this.activeMessage = undefined; this.activeRecall = undefined; try { await this.persist(); } catch { new Notice('无法保存聊天记录，请检查笔记库写入权限'); } this.view?.renderMessages(); this.view?.refreshStatus(); }
   }
-  stopAnswer() { this.stopRequested = true; this.client?.cancel(); this.view?.refreshStatus(); }
+  stopAnswer() { this.stopRequested = true; this.organizerAbort?.abort(); this.client?.cancel(); this.view?.refreshStatus(); }
   async handleTool(name: string, args: Record<string, unknown>) {
     if (!this.busy) throw Error('当前没有活动的学习请求');
     this.toolEvents.push(`调用 ${name}${name === 'obsidian_read' ? ' · ' + String(args.path) : name === 'obsidian_search' ? ' · ' + String(args.query) : ''}`);

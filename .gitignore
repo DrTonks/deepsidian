@@ -6,6 +6,7 @@ dist/
 !.env.example
 .preview/
 .runtime/
+.memory-runtime/
 .obsidian/
 data.json
 *.log

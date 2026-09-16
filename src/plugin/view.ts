@@ -17,6 +17,8 @@ export class LearningView extends ItemView {
   private executionEl?: HTMLElement;
   private executionCount = -1;
   private attachments: Attachment[] = [];
+  private submittedAttachments = 0;
+  private preparingAttachments = false;
   private attachmentEl!: HTMLElement;
   private modelSelect!: HTMLSelectElement;
   private effortSelect!: HTMLSelectElement;
@@ -149,9 +151,10 @@ export class LearningView extends ItemView {
     setIcon(button, icon); button.onclick = action; return button;
   }
   private async addFiles(files: { name: string; size: number; arrayBuffer(): Promise<ArrayBuffer> }[]) {
+    if(this.preparingAttachments){new Notice('正在准备发送，请稍后添加附件');return;}
     for (const file of files) {
-      if (this.attachments.length >= 4) { new Notice('每次最多附加 4 个文件'); break; }
-      try { const attachment = await readAttachment(file); if (this.attachments.length < 4) this.attachments.push(attachment); }
+      if (this.attachments.length + this.submittedAttachments >= 4) { new Notice('最多 4 个附件；正在发送的附件暂时保留名额，以便失败时恢复'); break; }
+      try { const attachment = await readAttachment(file); if (!this.preparingAttachments && this.attachments.length + this.submittedAttachments < 4) this.attachments.push(attachment); }
       catch (error) { new Notice(String(error)); }
     }
     this.renderAttachments();
@@ -163,7 +166,8 @@ export class LearningView extends ItemView {
       const chip = this.attachmentEl.createDiv('ds-attachment');
       if (file.image) chip.createEl('img', { attr: { src: `data:${file.image.mimeType};base64,${file.image.data}`, alt: file.name } });
       chip.createSpan({ text: file.name });
-      this.iconButton(chip, 'x', `移除 ${file.name}`, () => { this.attachments = this.attachments.filter(f => f.id !== file.id); this.renderAttachments(); });
+      const remove=this.iconButton(chip, 'x', `移除 ${file.name}`, () => { if(this.preparingAttachments)return;this.attachments = this.attachments.filter(f => f.id !== file.id); this.renderAttachments(); });
+      remove.disabled=this.preparingAttachments;
     }
   }
   private async loadModels() {
@@ -216,13 +220,17 @@ export class LearningView extends ItemView {
     if (this.attachments.some(f => f.image) && !this.plugin.models.find(m => m.provider === env.model.provider && m.model === env.model.model)?.inputModalities?.includes('image')) { new Notice('当前模型未声明图片输入能力，请刷新列表并选择标注“图片”的模型。附件已保留。'); return; }
     const files = [...this.attachments], draft = this.input.value;
     let submitted = false;
-    await this.plugin.ask(text, files, () => {
-      submitted = true;
+    this.preparingAttachments=true;this.renderAttachments();
+    try {await this.plugin.ask(text, files, () => {
+        submitted = true;
+        this.submittedAttachments = files.length;
+        this.preparingAttachments=false;
       this.attachments = this.attachments.filter(file => !files.includes(file));
       if (this.input.value === draft) this.input.value = '';
       this.commandMenu.hidden = true; this.renderAttachments();
-    });
-    if (submitted && this.plugin.chat?.messages.at(-1)?.status === '失败') { this.attachments.push(...files); this.renderAttachments(); }
+      });
+      if (submitted && this.plugin.chat?.messages.at(-1)?.status === '失败') { this.attachments.push(...files); this.renderAttachments(); }
+    } finally {this.preparingAttachments=false;this.submittedAttachments=0;this.renderAttachments();}
   }
   refreshChats() {
     if (this.chatTitle) this.chatTitle.setText(this.plugin.chat?.title || '新对话');

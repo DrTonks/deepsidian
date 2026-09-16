@@ -11,14 +11,15 @@ export const DEFAULT_RULES = `# 本库记忆整理规则
 - 不保存密钥、完整聊天或整篇笔记。
 - 忘记的内容不得从原来源重新提炼。
 `;
-export interface Entry { id: string; text: string; createdAt: string; source: string; }
-interface State { version: 1; vaultId: string; deleted: string[]; }
-export interface MemorySnapshot { vaultId: string; entries: Entry[]; rules: string; revision: string; }
+export interface Entry { id: string; text: string; createdAt: string; source: string; sourceKeys?:string[]; }
+interface State { version: 1; vaultId: string; deleted: string[]; excludedSources?:string[]; }
+export interface MemorySnapshot { vaultId: string; entries: Entry[]; rules: string; revision: string; excludedSources?:string[]; }
+export interface MemoryChange { id?:string; text:string; source:string; sourceKeys:string[]; }
 interface Transaction { version: 1; before: Record<string, string | null>; after: Record<string, string>; }
 const FILES = ['topics/general.md', 'RULES.md', 'state.json', 'MEMORY.md'];
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 export function encodeEntries(entries: Entry[]) {
-  return '# 本库记忆\n\n' + entries.map(e => `<!-- deepsidian-entry ${JSON.stringify({id:e.id,createdAt:e.createdAt,source:e.source})} -->\n${e.text}\n<!-- /deepsidian-entry -->`).join('\n\n') + '\n';
+  return '# 本库记忆\n\n' + entries.map(e => `<!-- deepsidian-entry ${JSON.stringify({id:e.id,createdAt:e.createdAt,source:e.source,sourceKeys:e.sourceKeys})} -->\n${e.text}\n<!-- /deepsidian-entry -->`).join('\n\n') + '\n';
 }
 export function decodeEntries(text: string): Entry[] {
   text=text.replace(/\r\n/g,'\n');
@@ -29,6 +30,7 @@ export function decodeEntries(text: string): Entry[] {
   for (const match of body.matchAll(pattern)) {
     const meta = JSON.parse(match[1]!); const value = match[2]!;
     if (typeof meta.id !== 'string' || !/^[\da-f-]{36}$/i.test(meta.id) || ids.has(meta.id) || typeof meta.createdAt !== 'string' || typeof meta.source !== 'string') throw Error('记忆元数据损坏或 ID 重复');
+    if(meta.sourceKeys!==undefined && (!Array.isArray(meta.sourceKeys) || meta.sourceKeys.some((key:unknown)=>typeof key!=='string'||!/^[a-f0-9]{64}$/.test(key))))throw Error('记忆来源元数据损坏');
     validateText(value); ids.add(meta.id); result.push({...meta,text:value});
   }
   if (body.replace(pattern, '').trim()) throw Error('记忆中有未识别内容；请先修复格式，内容未被删除');
@@ -110,17 +112,32 @@ export class MemoryStore {
     }
     const state=JSON.parse(files['state.json']!);
     if(state.version!==1 || typeof state.vaultId!=='string' || !Array.isArray(state.deleted) || FILES.some(p=>files[p]===null)) throw Error('记忆版本或文件集合不完整');
+    if(state.excludedSources!==undefined && (!Array.isArray(state.excludedSources)||state.excludedSources.some((key:unknown)=>typeof key!=='string'||!/^[a-f0-9]{64}$/.test(key))))throw Error('记忆来源排除记录损坏');
     return files;
   }
   private index(entries:Entry[]) { return '# 记忆索引（自动生成，请通过管理页编辑正文）\n\n'+entries.slice(0,50).map(e=>`- ${e.id}：${e.text.replace(/\s+/g,' ').slice(0,90)}`).join('\n')+'\n'; }
-  snapshot() { return this.run(async()=>{ const f=await this.initialized(); return {vaultId:JSON.parse(f['state.json']!).vaultId,entries:decodeEntries(f['topics/general.md']!),rules:f['RULES.md']!,revision:this.revision(f)}; }); }
-  update(revision:string, change: {add?:string; source?:string; edit?:{id:string;text:string}; remove?:string; rules?:string; organize?:boolean}) {
+  snapshot() { return this.run(async()=>{ const f=await this.initialized(); const state:State=JSON.parse(f['state.json']!);return {vaultId:state.vaultId,excludedSources:state.excludedSources??[],entries:decodeEntries(f['topics/general.md']!),rules:f['RULES.md']!,revision:this.revision(f)}; }); }
+  update(revision:string, change: {add?:string; source?:string; edit?:{id:string;text:string}; remove?:string; rules?:string; organize?:boolean; batch?:MemoryChange[]}) {
     return this.run(async()=>{
       const f=await this.initialized(); if(this.revision(f)!==revision) throw Error('记忆已改变，请刷新后重试');
       const entries=decodeEntries(f['topics/general.md']!); const state:State=JSON.parse(f['state.json']!);
       if(change.add!==undefined) { validateText(change.add); if(entries.length>=500) throw Error('首版最多保存 500 条记忆'); entries.push({id:randomUUID(),text:change.add.trim(),source:(change.source??'用户手动保存').slice(0,200),createdAt:new Date().toISOString()}); }
       if(change.edit) { validateText(change.edit.text); const found=entries.find(e=>e.id===change.edit!.id); if(!found) throw Error('记忆不存在'); found.text=change.edit.text.trim(); }
-      if(change.remove) { const i=entries.findIndex(e=>e.id===change.remove); if(i<0) throw Error('记忆不存在'); entries.splice(i,1); state.deleted.push(change.remove); }
+      if(change.remove) { const i=entries.findIndex(e=>e.id===change.remove); if(i<0) throw Error('记忆不存在'); state.excludedSources=[...new Set([...(state.excludedSources??[]),...(entries[i]!.sourceKeys??[])])];entries.splice(i,1); state.deleted.push(change.remove); }
+      if(change.batch) {
+        if(!change.batch.length || change.batch.length>12)throw Error('批量提案数量无效');
+        const touched=new Set<string>();
+        for(const item of change.batch) {
+          validateText(item.text);
+          if(!Array.isArray(item.sourceKeys)||!item.sourceKeys.length||item.sourceKeys.some(key=>typeof key!=='string'||!/^[a-f0-9]{64}$/.test(key)||(state.excludedSources??[]).includes(key)))throw Error('提案来源无效或已遗忘');
+          if(typeof item.source!=='string'||item.source.length>200)throw Error('来源说明过长');
+          if(item.id) {
+            const found=entries.find(e=>e.id===item.id);if(!found||touched.has(item.id))throw Error('更正目标不存在或重复');
+            touched.add(item.id);found.text=item.text.trim();found.sourceKeys=[...new Set([...(found.sourceKeys??[]),...item.sourceKeys])];found.source=item.source;
+          } else {entries.push({id:randomUUID(),text:item.text.trim(),createdAt:new Date().toISOString(),source:item.source,sourceKeys:[...new Set(item.sourceKeys)]});}
+        }
+        if(entries.length>500)throw Error('首版最多保存 500 条记忆');
+      }
       if(change.rules!==undefined && change.rules.length>12000) throw Error('整理规则超过 12000 字符');
       // Local organization rebuilds the index only; it does not invent or merge facts.
       const body=encodeEntries(entries);if(Buffer.byteLength(body)>128*1024)throw Error('首版主题文件上限 128 KiB');

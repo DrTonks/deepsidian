@@ -103,6 +103,7 @@ export function apply(ctx) {
     { name: 'obsidian_context', description: '获取用户发送问题时固定的当前笔记路径、选区和附近段落。', parameters: {} },
     { name: 'obsidian_metadata', description: '读取指定 Markdown 笔记的大纲、标签、出站链接和反向链接；不把笔记存在当作用户已掌握。', parameters: { path: { type: 'string', required: true } } },
   ]) {
+    if(process.env.DEEPSIDIAN_ORGANIZER==='1') continue;
     ctx.tools.register(defineTool({ ...tool,
       output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
       async execute(args, exec) { return JSON.stringify(await call(tool.name, args, exec.signal)); },
