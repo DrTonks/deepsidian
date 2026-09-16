@@ -38,6 +38,7 @@ const plugin:any={
  openOrganizer(){new OrganizerModal(this).open();},
  async extractMemory(){return {chatId:chat.id,title:chat.title,snapshot:await this.memory().snapshot(),sources:[{key:'demo',index:0,text:'请使用前端例子；技术词首次出现时请解释。'}],proposals:[{kind:'edit',id:'preview',text:'熟悉前端；技术词首次出现时配简短解释和一个前端例子。',reason:'用户明确的解释偏好，建议补充已有条目。',evidence:[{key:'demo',quote:'技术词首次出现时请解释'}]},{kind:'add',text:'解释复杂概念时偏好前端例子。',reason:'合成预览：用于展示多项提案勾选。',evidence:[{key:'demo',quote:'请使用前端例子'}]}]};},
  async applyMemoryProposals(){},
+ async discardIdleMemory(){delete this.state.idleMemory.pending;},
  state:{settings:{...defaults,setupComplete:screen!=='setup',background:'熟悉前端，正在了解 Transformer。'},chats:[chat],activeId:chat.id},
  get chat(){return this.state.chats.find((c:Chat)=>c.id===this.state.activeId);},
  models:[{provider:'deepseek-official',model:'deepseek-flash',name:'DeepSeek-V41-Flash',inputModalities:['text','image'],reasoning:{efforts:[{id:'off',name:'关闭'},{id:'high',name:'High'},{id:'max',name:'Max'}]}}],
@@ -61,4 +62,5 @@ if(screen==='attachment-tests')await checkAttachments(view,plugin,document.body.
 if(screen==='trace') Array.from(document.querySelectorAll<HTMLButtonElement>('.ds-tabs button')).find(b=>b.textContent==='轨迹')?.click();
 if(screen==='setup') new SetupModal(plugin).open();
 if(screen==='organizer')new OrganizerModal(plugin).open();
+if(screen==='idle-organizer'){const pending={id:'synthetic-idle',batch:await plugin.extractMemory()};plugin.state.idleMemory={pending};new OrganizerModal(plugin,pending).open();}
 document.body.dataset.ready='true';

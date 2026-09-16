@@ -23,6 +23,7 @@ import { commands, parseCommand } from './commands';
 import { extractionSources, extractionPrompt, parseProposals, sourceKey, type ProposalBatch } from './memory/proposals';
 import { runOrganizer } from './memory/organizer';
 import { OrganizerModal } from './memory/organizer-modal';
+import { MemoryScheduler, newIdleMemory, type IdleMemoryState } from './memory/scheduler';
 
 export default class Deepsidian extends Plugin {
   state: Saved = { settings: { ...defaults }, chats: [], activeId: '' };
@@ -60,10 +61,43 @@ export default class Deepsidian extends Plugin {
   private retryAt = 0;
   private retryDelay = 2000;
   private layoutReady = false;
+  private memoryDocuments=new Map<Document,()=>void>();
+  private watchMemoryDocument(doc:Document){
+    if(this.disposed || this.memoryDocuments.has(doc))return;
+    const events=['keydown','pointerdown','pointermove','wheel','focusin'] as const;
+    const activity=()=>this.memoryActivity();
+    for(const event of events)doc.addEventListener(event,activity,{passive:true});
+    this.memoryDocuments.set(doc,()=>{for(const event of events)doc.removeEventListener(event,activity);});
+  }
+  readonly idleScheduler=new MemoryScheduler({
+    enabled:()=>this.state.settings.idleMemory,
+    blocked:()=>this.busy || this.disposed || !this.layoutReady,
+    chats:()=>this.state.chats,state:()=>this.state.idleMemory??newIdleMemory(),
+    save:change=>this.saveIdleMemory(change),snapshot:()=>this.memory().snapshot(),
+    run:(prompt,signal)=>this.runMemoryModel(prompt,signal),
+  });
+  memoryActivity(){this.idleScheduler.activity();}
+  private saveIdleMemory(change:(state:IdleMemoryState)=>void){
+    let next:IdleMemoryState;
+    return this.saveChange(draft=>{next=draft.idleMemory??newIdleMemory();change(next);draft.idleMemory=next;},()=>{this.state.idleMemory=next;});
+  }
+  async setIdleMemory(enabled:boolean){
+    this.memoryActivity();
+    await this.saveChange(draft=>{draft.settings.idleMemory=enabled;},()=>{this.state.settings.idleMemory=enabled;});
+  }
+  async discardIdleMemory(id:string){
+    this.memoryActivity();
+    if(this.busy)throw Error('正在处理提案或回答，请完成后再放弃');
+    this.busy=true;
+    try{await this.clearIdleMemory(id);}finally{this.busy=false;this.view?.refreshStatus();}
+  }
+  private clearIdleMemory(id:string){
+    return this.saveIdleMemory(state=>{if(state.pending?.id!==id)throw Error('待审提案已改变，请重新打开');delete state.pending;});
+  }
   async onload() {
     addIcon('deepsidian-whale', WHALE_ICON);
     const saved = await this.loadData() as Partial<Saved> | null;
-    this.state = { settings: { ...defaults, ...saved?.settings }, chats: saved?.chats ?? [], activeId: saved?.activeId ?? '', updates: saved?.updates };
+    this.state = { settings: { ...defaults, ...saved?.settings }, chats: saved?.chats ?? [], activeId: saved?.activeId ?? '', updates: saved?.updates, idleMemory:saved?.idleMemory };
     if (!this.chat) await this.newChat();
     // Connect only after Obsidian has restored its layout; do not block onload.
     for (const chat of this.state.chats) for (const message of chat.messages) if (message.status === '生成中') message.status = '上次运行被中断';
@@ -77,6 +111,7 @@ export default class Deepsidian extends Plugin {
       void this.open().then(() => this.view?.setQuestion(question));
     } });
     this.registerEvent(this.app.workspace.on('active-leaf-change', () => {
+      this.memoryActivity();
       const current = this.app.workspace.getActiveViewOfType(MarkdownView);
       if (current) { this.lastMarkdown = current; if (this.includeContext) this.capture(current); this.view?.refreshContext(); }
     }));
@@ -86,12 +121,17 @@ export default class Deepsidian extends Plugin {
     this.addCommand({id:'memory-rules',name:'编辑记忆整理规则',callback:()=>this.openMemory('rules')});
     this.addCommand({id:'memory-organize',name:'整理记忆索引（本地）',callback:()=>void this.organizeMemory().catch(e=>new Notice(String(e)))});
     this.app.workspace.onLayoutReady(()=>{
+      if(this.disposed)return;
       this.layoutReady = true;
+      this.app.workspace.iterateAllLeaves?.(leaf=>this.watchMemoryDocument(leaf.view.containerEl.ownerDocument));
       void this.ensureAutomaticConnection();
     });
+    this.registerEvent(this.app.workspace.on('window-open',(_workspace,win)=>{this.memoryActivity();this.watchMemoryDocument(win.document);}));
+    this.registerEvent(this.app.workspace.on('window-close',(_workspace,win)=>{this.memoryDocuments.get(win.document)?.();this.memoryDocuments.delete(win.document);}));
     this.registerInterval(window.setInterval(() => this.maintainConnection(), 1000));
+    if(typeof document!=='undefined')this.watchMemoryDocument(document);
   }
-  onunload() { this.disposed = true; this.organizerAbort?.abort(); void this.client?.stop(); }
+  onunload() { this.disposed = true;for(const cleanup of this.memoryDocuments.values())cleanup();this.memoryDocuments.clear();this.idleScheduler.dispose();this.organizerAbort?.abort(); void this.client?.stop(); }
   memory(){
     if(!this.memoryStore){
       if(!(this.app.vault.adapter instanceof FileSystemAdapter))throw Error('记忆仅支持桌面本地库');
@@ -99,9 +139,10 @@ export default class Deepsidian extends Plugin {
     }
     return this.memoryStore;
   }
-  openMemory(tab:'entries'|'rules'='entries'){new MemoryModal(this,tab).open();}
-  openOrganizer(){new OrganizerModal(this).open();}
+  openMemory(tab:'entries'|'rules'='entries'){this.memoryActivity();new MemoryModal(this,tab).open();}
+  openOrganizer(){this.memoryActivity();new OrganizerModal(this,this.state.idleMemory?.pending).open();}
   async extractMemory(chatId:string,signal:AbortSignal):Promise<ProposalBatch> {
+    if(this.idleScheduler.running)await this.idleScheduler.stop();
     if(this.busy || this.disposed)throw Error('请先结束当前操作');
     const chat=this.state.chats.find(c=>c.id===chatId);if(!chat)throw Error('会话不存在');
     if(chat.contributeMemory===false)throw Error('本会话已关闭记忆贡献');
@@ -124,10 +165,12 @@ export default class Deepsidian extends Plugin {
     const directory=join(base,this.manifest.dir??`${this.app.vault.configDir}/plugins/${this.manifest.id}`);
     return runOrganizer({packageRoot:env.root,nodePath:env.node,dshHome:env.home,runtimeHome:join(directory,'.memory-runtime'),bridgePath:join(directory,'bridge.mjs'),cwd:base,...env.model},prompt,signal);
   }
-  async applyMemoryProposals(batch:ProposalBatch,selected:number[]) {
+  async applyMemoryProposals(batch:ProposalBatch,selected:number[],pendingId?:string) {
+    this.memoryActivity();
     if(this.busy || this.disposed)throw Error('请先结束当前操作');
     this.busy=true;
     try {
+      if(pendingId && this.state.idleMemory?.pending?.id!==pendingId)throw Error('待审提案已改变，请重新打开');
       const chat=this.state.chats.find(c=>c.id===batch.chatId);
       if(!chat || chat.contributeMemory===false)throw Error('来源会话不存在或已关闭贡献');
       if(!selected.length || new Set(selected).size!==selected.length || selected.some(i=>!Number.isInteger(i)||!batch.proposals[i]))throw Error('请选择有效提案');
@@ -139,9 +182,11 @@ export default class Deepsidian extends Plugin {
       if(snapshot.revision!==batch.snapshot.revision)throw Error('记忆或规则已改变，请重新生成提案');
       const proposals=parseProposals(JSON.stringify({proposals:selected.map(i=>batch.proposals[i])}),snapshot,batch.sources);
       await this.memory().update(snapshot.revision,{batch:proposals.map(p=>({id:p.id,text:p.text,source:`模型提案，经用户确认 · 会话 ${batch.chatId}`,sourceKeys:p.evidence.map(e=>e.key)}))});
+      if(pendingId)try{await this.clearIdleMemory(pendingId);}catch{new Notice('记忆已保存，但待审记录清理失败；重新打开后可放弃旧提案，无需重复保存。');}
     } finally {this.busy=false;this.view?.refreshStatus();}
   }
   async setChatMemory(id: string, change: {useMemory?: boolean; contributeMemory?: boolean}) {
+    this.memoryActivity();
     if(this.busy) throw Error('请先结束当前回答，再修改会话记忆设置');
     const chat = this.state.chats.find(c => c.id === id);
     if(!chat) throw Error('会话不存在');
@@ -152,6 +197,7 @@ export default class Deepsidian extends Plugin {
   }
   async organizeMemory(){const s=await this.memory().snapshot();await this.memory().update(s.revision,{organize:true});new Notice('已重建记忆索引；未调用模型或提炼聊天');}
   async runCommand(text:string):Promise<{question?:string}> {
+    this.memoryActivity();
     const command=parseCommand(text); if(!command)throw Error('指令格式无效，输入 / 查看指令');
     const {name,args}=command;
     if(!commands.some(c=>c.name===name))throw Error(`未知指令 /${name}；输入 / 查看可用指令`);
@@ -219,11 +265,13 @@ export default class Deepsidian extends Plugin {
     }
   }
   sidebarActivated() {
+    this.memoryActivity();
     this.lastUsed = Date.now();
     void this.ensureAutomaticConnection();
   }
   private maintainConnection() {
     if (this.disposed || !this.layoutReady) return;
+    void this.idleScheduler.tick();
     if (this.view?.hasFocus()) {
       this.lastUsed = Date.now();
       void this.ensureAutomaticConnection();
@@ -337,6 +385,7 @@ export default class Deepsidian extends Plugin {
     if (method === 'disconnected') { this.status = this.state.settings.autoConnect ? '连接已中断，侧栏聚焦时自动重连' : '连接已中断，发送消息时重连'; this.view?.refreshStatus(); }
   }
   async ask(question: string, attachments: Attachment[] = [], accepted?: () => void) {
+    this.memoryActivity();
     if (this.busy || !question.trim()) return;
     this.capture();
     const source = { ...this.source };

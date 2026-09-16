@@ -264,3 +264,37 @@ test('M2 confirms only selected corrections and preserves identity plus previous
   assert.equal(snap.entries.length,1);assert.equal(snap.entries[0].id,id);assert.equal(snap.entries[0].text,'使用前端例子');assert.equal(snap.entries[0].sourceKeys.length,2);
   await store.update(snap.revision,{remove:id});assert.equal((await store.snapshot()).excludedSources.length,2);
 });
+
+test('idle pending data survives host reload and a failed toggle preserves opt-out',async()=>{
+  const old=(globalThis as any).window;(globalThis as any).window={setInterval:()=>0};
+  try {
+    const p=new Deepsidian();const idle={version:1,day:'2026-09-16',calls:1,chars:100,retryAt:0,cursors:{},pending:{id:'pending',batch:{chatId:'a'}}};
+    p.saved={settings:{autoConnect:false,idleMemory:true},chats:[{id:'a',title:'a',messages:[]}],activeId:'a',idleMemory:idle};await p.onload();assert.deepEqual(p.state.idleMemory,idle);assert.equal(p.state.settings.idleMemory,true);
+    p.state.settings.idleMemory=false;p.saveData=async()=>{throw Error('disk full');};await assert.rejects(()=>p.setIdleMemory(true));assert.equal(p.state.settings.idleMemory,false);
+  } finally {(globalThis as any).window=old;}
+});
+
+test('popout activity is observed for existing and new windows, and listeners are cleaned up',async()=>{
+  const old=(globalThis as any).window;(globalThis as any).window={setInterval:()=>0};
+  try {
+    const p=new Deepsidian();p.saved={settings:{autoConnect:false},chats:[{id:'a',title:'a',messages:[]}],activeId:'a'};
+    const existing=new EventTarget(),later=new EventTarget();const events:any={};let activities=0;
+    p.memoryActivity=()=>{activities++;};p.app.workspace.on=(name:string,fn:any)=>{events[name]=fn;};p.app.workspace.iterateAllLeaves=(fn:any)=>fn({view:{containerEl:{ownerDocument:existing}}});
+    await p.onload();p.ready();existing.dispatchEvent(new Event('keydown'));assert.equal(activities,1);
+    events['window-open']({}, {document:later});later.dispatchEvent(new Event('pointerdown'));assert.equal(activities,3);
+    events['window-close']({}, {document:later});later.dispatchEvent(new Event('keydown'));assert.equal(activities,3);
+    p.onunload();existing.dispatchEvent(new Event('keydown'));assert.equal(activities,3);
+    p.ready();existing.dispatchEvent(new Event('keydown'));assert.equal(activities,3,'late layout after unload must not reattach listeners');
+  } finally {(globalThis as any).window=old;}
+});
+
+test('discard cannot race a pending memory commit, and successful confirmation clears the pending record',async()=>{
+  const {MemoryStore}=await import('../src/plugin/memory/store.ts');const root=await mkdtemp(resolve('.runs/idle-apply-'));const store=new MemoryStore(join(root,'memory'));
+  const p=new Deepsidian();p.state.chats=[{id:'a',title:'a',messages:[{role:'user',text:'前端例子'}]}];p.state.activeId='a';p.memory=()=>store;
+  p.runMemoryModel=async(prompt:string)=>{const source=JSON.parse(prompt.split('\n').at(-1)!).sources[0];return JSON.stringify({proposals:[{kind:'add',text:'使用前端例子',reason:'偏好',evidence:[{key:source.key,quote:source.text}]}]});};
+  const batch=await p.extractMemory('a',new AbortController().signal);p.state.idleMemory={version:1,day:'',calls:1,chars:100,retryAt:0,cursors:{},pending:{id:'pending',batch}};
+  const update=store.update.bind(store);let release!:()=>void,entered!:()=>void;const started=new Promise<void>(r=>entered=r);
+  store.update=async(...args:any[])=>{entered();await new Promise<void>(r=>release=r);return update(args[0],args[1]);};
+  const saving=p.applyMemoryProposals(batch,[0],'pending');await started;await assert.rejects(()=>p.discardIdleMemory('pending'),/正在处理/);release();await saving;
+  assert.equal(p.state.idleMemory.pending,undefined);assert.equal((await store.snapshot()).entries.length,1);assert.equal(p.busy,false);
+});

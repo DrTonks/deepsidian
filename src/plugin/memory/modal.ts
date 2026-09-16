@@ -95,7 +95,7 @@ export class MemoryModal extends Modal {
     const more = root.createEl('details', {cls:'ds-memory-maintenance'});
     more.open = this.maintenanceOpen;
     more.createEl('summary', {text:'存储、维护与隐私说明',attr:{'data-memory-focus':'存储、维护与隐私说明'}});
-    more.createEl('p',{text:'记忆读取由设置中的“使用本库长期记忆”控制。删除不会擦除已发送的聊天；下一轮会通知模型撤回旧记忆。自动提炼和闲时整理尚未启用。'});
+    more.createEl('p',{text:'记忆读取由设置中的“使用本库长期记忆”控制。删除不会擦除已发送的聊天；下一轮会通知模型撤回旧记忆。闲时提案可在插件设置开启，默认关闭，仍需人工确认。'});
     more.createEl('p',{text:'未保存草稿只在本次 Obsidian 运行期间保留，不会发送给模型。刷新不清除草稿；重启前请保存。'});
     this.button(more,'刷新已保存内容',()=>void this.refresh());
     this.button(more,'重建本地索引',()=>void this.action(()=>this.plugin.memory().update(this.snapshot!.revision,{organize:true})));
@@ -115,7 +115,7 @@ export class MemoryModal extends Modal {
     };
     for(const [key,label,description] of [
       ['useMemory','读取本库记忆','为回答提供已存偏好和相关记忆；知识库总开关关闭时，此处不能恢复读取。'],
-      ['contributeMemory','允许本会话贡献记忆','控制 /remember 保存和 /extract 提案生成、确认。当前不会自动提炼聊天。'],
+      ['contributeMemory','允许本会话贡献记忆','控制 /remember、/extract 与闲时提案。贡献关闭后，已有待审提案也不能确认保存。'],
     ] as const) {
       const row=root.createDiv('ds-memory-session-row');
       row.createEl('strong',{text:label});row.createEl('p',{text:description});
@@ -136,7 +136,7 @@ export class MemoryModal extends Modal {
     const search = toolbar.createEl('input',{attr:{type:'search','aria-label':'搜索记忆','data-memory-focus':'搜索记忆',placeholder:'搜索内容或来源…'}});
     search.value = this.query; search.disabled = this.busy;
     this.button(toolbar,'新增记忆',()=>this.select('add'),'mod-cta');
-    this.button(toolbar,'从会话提炼',()=>{this.close();this.plugin.openOrganizer();});
+    this.button(toolbar,this.plugin.state.idleMemory?.pending?'审阅闲时提案':'从会话提炼',()=>{this.close();this.plugin.openOrganizer();});
     const body = root.createDiv('ds-memory-layout');
     const list = body.createDiv('ds-memory-list');
     const drawList = () => {
