@@ -30,7 +30,7 @@ function role(event: TraceEntry) {
   if (event.type === 'user/message') return ['user','用户'];
   if (event.type.startsWith('assistant/')) return ['assistant','助手'];
   if (event.type.startsWith('tool/') || event.type.startsWith('web/')) return ['tool','工具'];
-  if (event.type.startsWith('request/')) return ['context','上下文'];
+  if (event.type.startsWith('request/') || event.type.startsWith('memory/')) return ['context','上下文'];
   return ['event','事件'];
 }
 interface State { chat?: Chat; busy: boolean; mode: string; query: string; graph: HTMLElement; rows: HTMLElement; footer: HTMLElement; }

@@ -7,7 +7,8 @@ import {pathToFileURL} from 'node:url';
 await mkdir('.runs',{recursive:true});const dir=await mkdtemp(resolve('.runs/host-test-'));
 const outfile=join(dir,'host.mjs');
 await build({entryPoints:['src/plugin/main.ts'],outfile,bundle:true,platform:'node',format:'esm',alias:{obsidian:resolve('tests/host-obsidian.ts')}});
-const Deepsidian=(await import(pathToFileURL(outfile).href)).default;
+const Base=(await import(pathToFileURL(outfile).href)).default;
+class Deepsidian extends Base { constructor(){super();this.state.settings.useMemory=false;} }
 test('auto connection waits for layout, honors opt-out, and ignores late layout after unload',async()=>{
   const old=(globalThis as any).window;(globalThis as any).window={setInterval:()=>0};
   try {
@@ -140,4 +141,48 @@ test('connect waits for initialization even when the child process is already al
   const second=p.connect().then((value:any)=>{returned=true;return value;});
   await Promise.resolve();await Promise.resolve();assert.equal(returned,false);
   release();assert.equal(await first,await second);
+});
+
+
+test('memory crosses chats, freezes in-flight edits, withdraws deletion, and honors disabled reads', async () => {
+  const {MemoryStore}=await import('../src/plugin/memory/store.ts');
+  const root=await mkdtemp(resolve('.runs/recall-host-'));const store=new MemoryStore(join(root,'memory'));
+  const p=new Deepsidian();p.state.settings.useMemory=true;p.state.chats=[{id:'a',title:'a',messages:[]}];p.state.activeId='a';
+  p.memory=()=>store;p.capture=()=>{};
+  await p.runCommand('/remember 我熟悉前端，请用前端例子解释');
+  const id=(await store.snapshot()).entries[0]!.id;const seen:string[]=[];let phase=0;
+  p.connect=async()=>({options:{model:'test'},prompt:async(_id:string,text:string)=>{
+    assert.match(text,/撤回此前所有长期记忆/);
+    if(phase===0){const snap=await store.snapshot();await store.update(snap.revision,{edit:{id,text:'请用Python例子解释'}});}
+    if(phase<2) seen.push((await p.handleTool('memory_read',{id})).entry.text);
+    else {assert.equal((await p.handleTool('memory_search',{query:''})).total,0);await assert.rejects(()=>p.handleTool('memory_read',{id}),/可能已删除/);assert.doesNotMatch(text,/请用Python例子/);}
+    return {kind:'completed'};
+  }});
+  await p.newChat();await p.ask('解释缓存');assert.match(seen[0]!,/前端/);assert.ok(p.chat.messages.at(-1).trace.some((e:any)=>e.type==='memory/read'));
+  phase=1;await p.newChat();await p.ask('解释缓存');assert.match(seen[1]!,/Python/);
+  const snap=await store.snapshot();await store.update(snap.revision,{remove:id});phase=2;await p.ask('继续');
+  p.state.settings.useMemory=false;p.memory=()=>{throw Error('must not touch memory');};
+  p.connect=async()=>({options:{model:'test'},prompt:async(_id:string,text:string)=>{assert.match(text,/长期记忆读取已关闭/);await assert.rejects(()=>p.handleTool('memory_read',{id}),/未启用/);return {kind:'completed'};}});
+  await p.ask('继续');assert.equal(p.chat.messages.at(-1).status,'完成');
+});
+
+test('memory preparation failures retain the draft and do not start a model request', async () => {
+  const p=new Deepsidian();p.state.settings.useMemory=true;p.state.chats=[{id:'a',title:'a',messages:[]}];p.state.activeId='a';p.capture=()=>{};
+  let accepted=0,connected=0;p.memory=()=>({snapshot:async()=>{throw Error('writer lock');}});p.connect=async()=>{connected++;};
+  await p.ask('question',[],()=>accepted++);assert.equal(accepted,0);assert.equal(connected,0);assert.equal(p.chat.messages.length,0);assert.equal(p.busy,false);
+});
+
+
+test('memory tool output has a per-turn budget and never falls back to foreign paths', async () => {
+  const p=new Deepsidian();p.state.settings.useMemory=true;p.state.chats=[{id:'a',title:'a',messages:[]}];p.state.activeId='a';p.capture=()=>{};
+  const entry={id:'id',text:'x'.repeat(2000),source:'test',createdAt:'2026-09-16'};
+  p.memory=()=>({snapshot:async()=>({vaultId:'local',revision:'r',rules:'',entries:[entry]})});
+  p.connect=async()=>({options:{model:'test'},prompt:async()=>{
+    await assert.rejects(()=>p.handleTool('memory_read',{id:'../../other-vault'}),/不在本轮本库/);
+    for(let i=0;i<10;i++) await p.handleTool('memory_read',{id:'id'});
+    await p.handleTool('memory_read',{id:'id'});
+    await assert.rejects(()=>p.handleTool('memory_read',{id:'id'}),/预算/);
+    return {kind:'completed'};
+  }});
+  await p.ask('question');assert.equal(p.chat.messages.at(-1).status,'完成');
 });

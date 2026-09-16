@@ -133,3 +133,36 @@
 .deepsidian .ds-history-title { max-width:100%; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .deepsidian .ds-history-item small,.deepsidian .ds-history-empty { color:var(--text-muted); font-size:11px; }
 .deepsidian .ds-history-empty { padding:16px 8px; }
+
+/* Memory manager: restrained Obsidian surfaces, one editor at a time. */
+.ds-memory-dialog { width:min(840px, 92vw); max-width:92vw; }
+.ds-memory-modal { width:100%; box-sizing:border-box; min-width:0; max-height:80vh; overflow:auto; }
+.ds-memory-heading h2 { margin:0 0 6px; }
+.ds-memory-subtitle,.ds-memory-source,.ds-memory-count,.ds-memory-edit-status { color:var(--text-muted); font-size:12px; line-height:1.6; }
+.ds-memory-tabs { display:flex; gap:18px; border-bottom:1px solid var(--background-modifier-border); margin-top:16px; }
+.ds-memory-tabs button { border:0; border-radius:0; background:transparent; box-shadow:none; padding:8px 0; border-bottom:2px solid transparent; }
+.ds-memory-tabs button[aria-pressed="true"] { color:var(--interactive-accent); border-bottom-color:var(--interactive-accent); }
+.ds-memory-feedback { min-height:26px; font-size:12px; padding:6px 0; color:var(--text-muted); }
+.ds-memory-feedback[role="alert"] { color:var(--text-error); }
+.ds-memory-toolbar { display:flex; gap:10px; margin:4px 0 14px; }
+.ds-memory-toolbar input { min-width:0; flex:1; }
+.ds-memory-layout { display:grid; grid-template-columns:minmax(160px, .8fr) minmax(0, 1.3fr); gap:20px; min-height:280px; }
+.ds-memory-list { max-height:360px; overflow:auto; padding-right:10px; border-right:1px solid var(--background-modifier-border); }
+.ds-memory-count { display:block; margin-bottom:8px; }
+.ds-memory-row { display:flex; flex-direction:column; align-items:flex-start; text-align:left; gap:6px; width:100%; height:auto; padding:10px; margin-bottom:5px; box-shadow:none; border:0; background:transparent; white-space:normal; }
+.ds-memory-row span { font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.ds-memory-row small { color:var(--text-muted); font-size:11px; }
+.ds-memory-row[aria-pressed="true"],.ds-memory-row:hover { background:var(--background-secondary); }
+.ds-memory-detail h3 { font-size:14px; margin:0 0 8px; }
+.ds-memory-source { overflow-wrap:anywhere; }
+.ds-memory-editor { box-sizing:border-box; width:100%; min-height:150px; font-size:14px; line-height:1.65; padding:12px; border-radius:8px; }
+.ds-memory-rule-editor { min-height:300px; font-family:var(--font-monospace); }
+.ds-memory-editor-actions { display:flex; gap:8px; margin-top:10px; }
+.ds-memory-danger { border-top:1px solid var(--background-modifier-border); margin-top:22px; padding-top:12px; font-size:12px; }
+.ds-memory-danger button { margin-right:8px; }
+.ds-memory-empty { color:var(--text-muted); font-size:13px; padding:20px 5px; line-height:1.7; }
+.ds-memory-maintenance { margin-top:20px; border-top:1px solid var(--background-modifier-border); padding-top:12px; color:var(--text-muted); font-size:12px; line-height:1.6; }
+.ds-memory-maintenance summary { cursor:pointer; }
+.ds-memory-maintenance button { margin:0 8px 8px 0; }
+.ds-memory-maintenance small { display:block; }
+@media (max-width:600px) { .ds-memory-layout { grid-template-columns:1fr; } .ds-memory-list { max-height:180px; border-right:0; border-bottom:1px solid var(--background-modifier-border); } .ds-memory-modal { width:100%; } }

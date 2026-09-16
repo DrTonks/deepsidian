@@ -18,6 +18,7 @@ import { DeepsidianSettings } from './settings';
 import { SetupModal } from './setup';
 import { MemoryStore } from './memory/store';
 import { MemoryModal } from './memory/modal';
+import { prepareRecall, readRecall, MEMORY_DISABLED, type Recall } from './memory/recall';
 import { commands, parseCommand } from './commands';
 
 export default class Deepsidian extends Plugin {
@@ -48,6 +49,9 @@ export default class Deepsidian extends Plugin {
   private connecting?: Promise<DshClient>;
   private disconnecting?: Promise<void>;
   private memoryStore?: MemoryStore;
+  private activeRecall?: Recall;
+  private memoryReadChars = 0;
+  readonly memoryDrafts = new Map<string,string>();
   private autoAttempt?: Promise<void>;
   private retryAt = 0;
   private retryDelay = 2000;
@@ -108,7 +112,7 @@ export default class Deepsidian extends Plugin {
       await this.saveChange(draft => { draft.chats.find(c => c.id === chat.id)!.goal = goal; }, () => { chat.goal = goal; });
       new Notice(args==='clear'?'已清除会话目标':'已设置本会话目标；后续提问会带入，不自动续跑');return {};
     }
-    if(name==='remember') {if(!args)throw Error('用法：/remember 要记住的内容');const s=await this.memory().snapshot();await this.memory().update(s.revision,{add:args,source:`显式 /remember · 会话 ${this.chat?.id??''}`});new Notice('已保存到本库记忆；自动召回尚未启用');}
+    if(name==='remember') {if(!args)throw Error('用法：/remember 要记住的内容');const s=await this.memory().snapshot();await this.memory().update(s.revision,{add:args,source:`显式 /remember · 会话 ${this.chat?.id??''}`});new Notice('已保存到本库记忆；下次提问时可读取');}
     if(name==='memory')this.openMemory();
     if(name==='rules')this.openMemory('rules');
     if(name==='organize')await this.organizeMemory();
@@ -264,19 +268,30 @@ export default class Deepsidian extends Plugin {
     }
     if (method === 'disconnected') { this.status = this.state.settings.autoConnect ? '连接已中断，侧栏聚焦时自动重连' : '连接已中断，发送消息时重连'; this.view?.refreshStatus(); }
   }
-  async ask(question: string, attachments: Attachment[] = []) {
+  async ask(question: string, attachments: Attachment[] = [], accepted?: () => void) {
     if (this.busy || !question.trim()) return;
     this.capture();
     const source = { ...this.source };
     const inputQuestion=this.chat?.goal?`本会话目标：${this.chat.goal}\n\n本次问题：${question}`:question;
-    const prompt = buildPrompt(inputQuestion, '', source) + attachmentText(attachments);
+    let prompt = buildPrompt(inputQuestion, '', source) + attachmentText(attachments);
     if (prompt.length > 40000) { new Notice('本次上下文超过 40000 字符，请减少附件或选区。'); return; }
     const chat = this.chat!;
     this.busy = true; this.stopRequested = false; this.activeSource = source;
+    this.activeRecall = undefined; this.memoryReadChars = 0; this.view?.refreshStatus();
+    try {
+      if(this.state.settings.useMemory) this.activeRecall = prepareRecall(await this.memory().snapshot(), question);
+      prompt += '\n\n' + (this.activeRecall?.prompt ?? MEMORY_DISABLED);
+      if(prompt.length>40000) throw Error('包含记忆后上下文超过40000字符，请减少附件或选区');
+      if(this.disposed || this.stopRequested) throw Error('已在发送前停止');
+    } catch(error) {
+      this.busy=false; this.activeRecall=undefined; this.view?.refreshStatus();
+      new Notice(`未发送，草稿已保留：${String(error)}`); return;
+    }
+    accepted?.();
     this.toolEvents = []; this.attempt = ''; this.committed = ''; this.reasoningAttempt = ''; this.reasoningCommitted = '';
     chat.messages.push({ role: 'user', text: question, source: { ...this.activeSource }, attachments: attachments.map(f => f.name) });
     if (chat.messages.length === 1) chat.title = question.slice(0, 28);
-    const answer: Message = { role: 'assistant', text: '', status: '生成中', trace: [], startedAt: Date.now() };
+    const answer: Message = { role: 'assistant', text: '', status: '生成中', trace: [traceEntry({type:'memory/snapshot',data:{enabled:!!this.activeRecall,revision:this.activeRecall?.snapshot.revision,index:this.activeRecall?.index??[],note:'仅记录提供给模型的索引；不代表模型已使用，正文读取见memory/read'}})], startedAt: Date.now() };
     chat.messages.push(answer); this.activeMessage = answer;
     this.view?.renderMessages(); this.view?.refreshStatus(); this.view?.refreshChats();
     try {
@@ -288,13 +303,23 @@ export default class Deepsidian extends Plugin {
       answer.status = reason.kind === 'completed' ? '完成' : reason.kind === 'aborted' ? '已停止' : `已结束：${reason.kind}`;
       if (!answer.text) answer.text = answer.status === '完成' ? '模型未返回可显示文本。可检查模型配置或再次提问。' : '本次回答已停止。';
     } catch (error) { answer.status = this.stopRequested ? '已停止' : '失败'; answer.text += `\n\n${String(error)}`; }
-    finally { this.lastUsed = Date.now(); answer.elapsedMs = Date.now() - answer.startedAt!; this.busy = false; this.activeMessage = undefined; try { await this.persist(); } catch { new Notice('无法保存聊天记录，请检查笔记库写入权限'); } this.view?.renderMessages(); this.view?.refreshStatus(); }
+    finally { this.lastUsed = Date.now(); answer.elapsedMs = Date.now() - answer.startedAt!; this.busy = false; this.activeMessage = undefined; this.activeRecall = undefined; try { await this.persist(); } catch { new Notice('无法保存聊天记录，请检查笔记库写入权限'); } this.view?.renderMessages(); this.view?.refreshStatus(); }
   }
   stopAnswer() { this.stopRequested = true; this.client?.cancel(); this.view?.refreshStatus(); }
   async handleTool(name: string, args: Record<string, unknown>) {
     if (!this.busy) throw Error('当前没有活动的学习请求');
     this.toolEvents.push(`调用 ${name}${name === 'obsidian_read' ? ' · ' + String(args.path) : name === 'obsidian_search' ? ' · ' + String(args.query) : ''}`);
     this.toolEvents = this.toolEvents.slice(-30); this.view?.refreshTools();
+    if (name === 'memory_search' || name === 'memory_read') {
+      if(!this.activeMessage || !this.activeRecall || this.stopRequested) throw Error('本轮记忆读取未启用或请求已停止');
+      const result=readRecall(this.activeRecall,name,args);
+      const length=JSON.stringify(result).length;
+      if(this.memoryReadChars+length>24000) throw Error('本轮记忆读取预算已用完');
+      this.memoryReadChars+=length;
+      this.activeMessage.trace?.push(traceEntry({type:name==='memory_read'?'memory/read':'memory/search',data:result}));
+      this.view?.scheduleAnswer();
+      return result;
+    }
     if (name === 'obsidian_context') return this.activeSource;
     if (name === 'obsidian_metadata') {
       const path = safeNotePath(args.path), file = this.app.vault.getAbstractFileByPath(path);

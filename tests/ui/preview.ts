@@ -31,6 +31,7 @@ const screen=new URLSearchParams(location.search).get('screen') ?? 'chat';
 let memoryEntries=[{id:'preview',text:'熟悉前端，首次出现的 agent 术语需要简短解释。',source:'合成预览记录',createdAt:'2026-09-13'}];
 let memoryRules='# 整理规则\n仅保存用户明确表达的持久偏好。';
 const plugin:any={
+ memoryDrafts:new Map(),
  state:{settings:{...defaults,setupComplete:screen!=='setup',background:'熟悉前端，正在了解 Transformer。'},chats:[chat],activeId:chat.id},
  get chat(){return this.state.chats.find((c:Chat)=>c.id===this.state.activeId);},
  models:[{provider:'deepseek-official',model:'deepseek-flash',name:'DeepSeek-V41-Flash',inputModalities:['text','image'],reasoning:{efforts:[{id:'off',name:'关闭'},{id:'high',name:'High'},{id:'max',name:'Max'}]}}],
@@ -43,7 +44,7 @@ const plugin:any={
  connect:async()=>{throw Error('组件预览不启动 DSH，请在 Obsidian 中连接。');},disconnect:async()=>{},
  newChat(){this.state.chats.unshift({id:'new',title:'新对话',messages:[]});this.state.activeId='new';this.view.renderMessages();this.view.refreshChats();},
  ask:async()=>{},stopAnswer(){},
- memory(){return {snapshot:async()=>({entries:memoryEntries,rules:memoryRules,revision:'preview'}),update:async(_rev:string,c:any)=>{if(c.add)memoryEntries.push({id:String(Date.now()),text:c.add,source:'合成预览记录',createdAt:'2026-09-13'});if(c.remove)memoryEntries=memoryEntries.filter(e=>e.id!==c.remove);if(c.edit)memoryEntries=memoryEntries.map(e=>e.id===c.edit.id?{...e,text:c.edit.text}:e);if(c.rules!==undefined)memoryRules=c.rules;}};},
+ memory(){return {snapshot:async()=>({vaultId:'preview-vault',entries:memoryEntries,rules:memoryRules,revision:'preview'}),update:async(_rev:string,c:any)=>{if(c.add)memoryEntries.push({id:String(Date.now()),text:c.add,source:'合成预览记录',createdAt:'2026-09-13'});if(c.remove)memoryEntries=memoryEntries.filter(e=>e.id!==c.remove);if(c.edit)memoryEntries=memoryEntries.map(e=>e.id===c.edit.id?{...e,text:c.edit.text}:e);if(c.rules!==undefined)memoryRules=c.rules;}};},
  openMemory(tab:'entries'|'rules'='entries'){new MemoryModal(this,tab).open();},
  async runCommand(text:string){const c=parseCommand(text);if(c?.name==='memory')this.openMemory();else if(c?.name==='rules')this.openMemory('rules');else if(c?.name==='plan')return {question:c.args};else if(c?.name==='remember')await this.memory().update('preview',{add:c.args});return {};},
 };

@@ -10,7 +10,8 @@ export class DeepsidianSettings extends PluginSettingTab {
     el.createEl('p', { text: '复用本机 DSH 的模型与凭证。选区、对话和工具读取内容会发送给你配置的模型供应商。工具可检索笔记、搜索网络和读取网页，网络能力可分别关闭。' });
     new Setting(el).setName('首次使用与连接诊断').addButton(b => b.setButtonText('打开引导').onClick(() => new SetupModal(this.plugin).open()));
     new Setting(el).setName('自动连接与侧栏唤醒').setDesc('界面恢复或返回侧栏时自动连接；焦点在侧栏时保持连接，离开且无请求约5分钟后休眠。不自动发送模型请求。').addToggle(t=>t.setValue(this.plugin.state.settings.autoConnect).onChange(async value=>{this.plugin.state.settings.autoConnect=value;await this.plugin.persist();if(value)void this.plugin.connect().catch(e=>new Notice(String(e)));}));
-    new Setting(el).setName('本库记忆').setDesc('手动管理与本地索引整理；自动召回、模型提炼和闲时整理尚未启用。').addButton(b=>b.setButtonText('管理记忆').onClick(()=>this.plugin.openMemory())).addButton(b=>b.setButtonText('编辑规则').onClick(()=>this.plugin.openMemory('rules')));
+    new Setting(el).setName('使用本库长期记忆').setDesc('下次提问生效。关闭后不再读取，并通知模型停用旧记忆；不会删除聊天历史。').addToggle(t=>t.setValue(this.plugin.state.settings.useMemory).onChange(async value=>{this.plugin.state.settings.useMemory=value;await this.plugin.persist();}));
+    new Setting(el).setName('本库记忆').setDesc('跨会话读取、手动编辑与本地索引整理；模型提炼和闲时整理尚未启用。').addButton(b=>b.setButtonText('管理记忆').onClick(()=>this.plugin.openMemory())).addButton(b=>b.setButtonText('编辑规则').onClick(()=>this.plugin.openMemory('rules')));
     for (const [key, title, desc] of [['webSearch', '网络搜索', 'DSH 原生 DeepSeek 搜索，会将查询发送到搜索供应商并产生额外模型请求；新安装默认开启。'], ['webFetch', '网页读取', 'DSH 原生匿名 HTTP 网页读取，仅允许公网 HTTP(S)，新安装默认开启。']] as const) {
       new Setting(el).setName(title).setDesc(desc).addToggle(t => t.setValue(this.plugin.state.settings[key]).onChange(async value => {
         if (this.plugin.busy) { new Notice('请先结束当前回答'); t.setValue(this.plugin.state.settings[key]); return; }

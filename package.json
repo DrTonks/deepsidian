@@ -23,7 +23,7 @@
     "obsidian": "1.13.1",
     "typescript": "7.0.2"
   },
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "An Obsidian sidebar powered by a local DeepSeek Harness runtime.",
   "license": "MIT"
 }

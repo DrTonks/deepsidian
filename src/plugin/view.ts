@@ -141,7 +141,7 @@ export class LearningView extends ItemView {
       row.createEl('strong',{text:`/${c.name} ${c.hint}`});row.createEl('small',{text:c.description});
       row.onmousedown=e=>e.preventDefault();row.onclick=()=>this.chooseCommand(c.name);
     });
-    if(matches.length)this.input.setAttribute('aria-activedescendant',`ds-command-${this.commandIndex}`);
+    if(matches.length){this.input.setAttribute('aria-activedescendant',`ds-command-${this.commandIndex}`);this.commandMenu.children[this.commandIndex]?.scrollIntoView({block:'nearest'});}
   }
   private iconButton(parent: HTMLElement, icon: string, label: string, action: () => void) {
     // Obsidian uses aria-label for its tooltip; native title produced a second one.
@@ -214,9 +214,15 @@ export class LearningView extends ItemView {
     if ((buildPrompt(promptQuestion, '', this.plugin.source) + attachmentText(this.attachments)).length > 40000) { new Notice('上下文超过 40000 字符，请减少附件或选区。'); return; }
     let env; try { env = this.plugin.resolveEnvironment(); } catch { new SetupModal(this.plugin).open(); return; }
     if (this.attachments.some(f => f.image) && !this.plugin.models.find(m => m.provider === env.model.provider && m.model === env.model.model)?.inputModalities?.includes('image')) { new Notice('当前模型未声明图片输入能力，请刷新列表并选择标注“图片”的模型。附件已保留。'); return; }
-    const files = this.attachments; this.attachments = []; this.input.value = ''; this.commandMenu.hidden=true;this.renderAttachments();
-    await this.plugin.ask(text, files);
-    if (this.plugin.chat?.messages.at(-1)?.status === '失败') { this.attachments.push(...files); this.renderAttachments(); }
+    const files = [...this.attachments], draft = this.input.value;
+    let submitted = false;
+    await this.plugin.ask(text, files, () => {
+      submitted = true;
+      this.attachments = this.attachments.filter(file => !files.includes(file));
+      if (this.input.value === draft) this.input.value = '';
+      this.commandMenu.hidden = true; this.renderAttachments();
+    });
+    if (submitted && this.plugin.chat?.messages.at(-1)?.status === '失败') { this.attachments.push(...files); this.renderAttachments(); }
   }
   refreshChats() {
     if (this.chatTitle) this.chatTitle.setText(this.plugin.chat?.title || '新对话');

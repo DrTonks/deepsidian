@@ -55,30 +55,44 @@ test('memory manager preserves other drafts across saves, tabs and refreshes',as
   const {MemoryModal}=await import(pathToFileURL(outfile).href);
   class Element {
     children:Element[]=[];value='';text='';label='';onclick?:()=>unknown;oninput?:()=>unknown;
+    disabled=false; setAttribute(){} setText(text:string){this.text=text;}
     empty(){this.children=[];}
     createEl(_tag:string,options:any={}){const e=new Element();e.text=options.text??'';e.label=options.attr?.['aria-label']??'';this.children.push(e);return e;}
     createDiv(){return this.createEl('div');}
     all():Element[]{return this.children.flatMap(e=>[e,...e.all()]);}
   }
-  const modal=new MemoryModal({app:{},memory:()=>store,chat:{id:'test'}});
+  const modal=new MemoryModal({app:{},state:{settings:{useMemory:true}},memory:()=>store,chat:{id:'test'}});
   const content=new Element();modal.contentEl=content;
   await modal.refresh();
   const edit=(label:string,value:string)=>{const e=content.all().find(e=>e.label===label)!;e.value=value;e.oninput!();};
-  edit('新记忆','new draft');edit('记忆内容','entry draft');
-  content.all().find(e=>e.text==='编辑规则')!.onclick!();
+  content.all().find(e=>e.text==='新增记忆')!.onclick!();
+  edit('新记忆','new draft');
+  modal.select((await store.snapshot()).entries[0]!.id);
+  edit('记忆内容','entry draft');
+  content.all().find(e=>e.text==='整理规则')!.onclick!();
   edit('记忆整理规则','rules draft');
-  content.all().find(e=>e.text==='管理记忆')!.onclick!();
+  content.all().find(e=>e.text==='记忆')!.onclick!();
+  modal.select('add');
   assert.equal(content.all().find(e=>e.label==='新记忆')!.value,'new draft');
   await modal.action(()=>store.update(modal.snapshot.revision,{add:'new draft'}),{key:'add',value:'new draft'});
-  assert.equal(content.all().find(e=>e.label==='新记忆')!.value,'');
+  modal.select('add'); assert.equal(content.all().find(e=>e.label==='新记忆')!.value,'');
+  modal.select((await store.snapshot()).entries[0]!.id);
   assert.equal(content.all().find(e=>e.label==='记忆内容')!.value,'entry draft');
-  content.all().find(e=>e.text==='编辑规则')!.onclick!();
+  content.all().find(e=>e.text==='整理规则')!.onclick!();
   assert.equal(content.all().find(e=>e.label==='记忆整理规则')!.value,'rules draft');
   // Text entered during an asynchronous save must also remain available.
   let release!:()=>void;
   const saving=modal.action(()=>new Promise<void>(r=>release=r),{key:'rules',value:'rules draft'});
   edit('记忆整理规则','newer draft');release();await saving;
   assert.equal(content.all().find(e=>e.label==='记忆整理规则')!.value,'newer draft');
+  const originalSnapshot=store.snapshot.bind(store);
+  store.snapshot=async()=>{throw Error('read unavailable');};
+  await modal.action(async()=>{}, {key:'rules',value:'newer draft'});
+  assert.ok(content.all().some(e=>e.text.includes('已保存，但读取最新内容失败')));
+  assert.ok(content.all().some(e=>e.text==='newer draft'));
+  assert.equal(content.all().some(e=>e.text==='保存规则'),false);
+  store.snapshot=originalSnapshot;await modal.refresh();
+  assert.equal(modal.needsRefresh,false);
 });
 
 
@@ -91,4 +105,19 @@ test('memory refuses symlinked topic files without changing the target',async(t)
   await assert.rejects(()=>store.snapshot(),/符号链接/);
   assert.equal(await readFile(outside,'utf8'),'external content');
   await assert.rejects(()=>access(join(root,'writer.lock')));
+});
+
+
+test('recall uses overlapping Chinese terms, bounded index, and frozen vault-local entries', async () => {
+  const {prepareRecall,readRecall}=await import('../src/plugin/memory/recall.ts');
+  const {store}=await fixture();let snapshot=await store.snapshot();
+  await store.update(snapshot.revision,{add:'缓存相关内容请用前端例子讲解'});snapshot=await store.snapshot();
+  const recall=prepareRecall(snapshot,'什么是缓存');
+  for(const query of ['什么是缓存','缓存','缓存是什么','缓']) assert.equal((readRecall(recall,'memory_search',{query}) as any).total,1);
+  const id=snapshot.entries[0]!.id;snapshot.entries[0]!.text='modified outside snapshot';
+  assert.match((readRecall(recall,'memory_read',{id}) as any).entry.text,/前端/);
+  assert.throws(()=>readRecall(recall,'memory_read',{id:'another-vault-id'}),/不在本轮本库/);
+  assert.throws(()=>readRecall(recall,'memory_search',{offset:-1}),/offset/);
+  const large=prepareRecall({...snapshot,entries:Array.from({length:100},(_,i)=>({...snapshot.entries[0]!,id:String(i),text:'x'.repeat(2000)}))},'x');
+  assert.equal(large.index.length,12);assert.ok(large.prompt.length<4000);
 });

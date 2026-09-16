@@ -13,7 +13,7 @@ export const DEFAULT_RULES = `# 本库记忆整理规则
 `;
 export interface Entry { id: string; text: string; createdAt: string; source: string; }
 interface State { version: 1; vaultId: string; deleted: string[]; }
-export interface MemorySnapshot { entries: Entry[]; rules: string; revision: string; }
+export interface MemorySnapshot { vaultId: string; entries: Entry[]; rules: string; revision: string; }
 interface Transaction { version: 1; before: Record<string, string | null>; after: Record<string, string>; }
 const FILES = ['topics/general.md', 'RULES.md', 'state.json', 'MEMORY.md'];
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -113,7 +113,7 @@ export class MemoryStore {
     return files;
   }
   private index(entries:Entry[]) { return '# 记忆索引（自动生成，请通过管理页编辑正文）\n\n'+entries.slice(0,50).map(e=>`- ${e.id}：${e.text.replace(/\s+/g,' ').slice(0,90)}`).join('\n')+'\n'; }
-  snapshot() { return this.run(async()=>{ const f=await this.initialized(); return {entries:decodeEntries(f['topics/general.md']!),rules:f['RULES.md']!,revision:this.revision(f)}; }); }
+  snapshot() { return this.run(async()=>{ const f=await this.initialized(); return {vaultId:JSON.parse(f['state.json']!).vaultId,entries:decodeEntries(f['topics/general.md']!),rules:f['RULES.md']!,revision:this.revision(f)}; }); }
   update(revision:string, change: {add?:string; source?:string; edit?:{id:string;text:string}; remove?:string; rules?:string; organize?:boolean}) {
     return this.run(async()=>{
       const f=await this.initialized(); if(this.revision(f)!==revision) throw Error('记忆已改变，请刷新后重试');
