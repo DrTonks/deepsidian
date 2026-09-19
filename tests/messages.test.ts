@@ -41,7 +41,7 @@ test('default Messages protocol: native tool results, reasoning and durable proc
       assert.equal(req.url,'/v1/messages');
       const input=JSON.parse(raw);requests.push(input);
       assert.equal(input.model,'deepseek-flash');assert.equal(input.max_tokens,2048);
-      assert.deepEqual(input.tools.map((x:any)=>x.name).sort(),['memory_read','memory_search','obsidian_context','obsidian_metadata','obsidian_read','obsidian_search']);
+      assert.deepEqual(input.tools.map((x:any)=>x.name).sort(),['memory_read','memory_search','obsidian_base','obsidian_context','obsidian_metadata','obsidian_query','obsidian_read','obsidian_related','obsidian_resolve','obsidian_search']);
       const hasResult=input.messages.some((m:any)=>Array.isArray(m.content)&&m.content.some((b:any)=>b.type==='tool_result'));
       respond(res,!hasResult);
     } catch(e) {errors.push(e);res.writeHead(500);res.end('synthetic fixture assertion failed');}

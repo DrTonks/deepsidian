@@ -16,6 +16,7 @@ export class WorkspaceLeaf {}
 export class MarkdownView {}
 export class FileSystemAdapter {}
 export class TFile {}
+export class TFolder {}
 export class FuzzySuggestModal {}
 export class Setting {}
 export class Notice {constructor(..._args:any[]) {}}

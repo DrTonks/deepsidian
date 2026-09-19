@@ -10,6 +10,22 @@ await build({stdin:{contents:"export {default} from './src/plugin/main.ts'; expo
 const {default:Base,DshClient,FileSystemAdapter}=await import(pathToFileURL(outfile).href);
 class Deepsidian extends Base { constructor(){super();this.state.settings.useMemory=false;} }
 
+test('knowledge output respects per-result/turn budgets and cancelled or replaced turns',async()=>{
+  const p=new Deepsidian();p.busy=true;p.activeMessage={};
+  p.toolResult=async()=>({text:'x'.repeat(23000)});
+  await p.handleTool('obsidian_query',{});await p.handleTool('obsidian_query',{});
+  await assert.rejects(()=>p.handleTool('obsidian_query',{}),/预算不足/);
+  p.knowledgeChars=0;p.toolResult=async()=>({text:'x'.repeat(24000)});
+  await assert.rejects(()=>p.handleTool('obsidian_query',{}),/预算不足/);
+  for(const mode of ['cancel','replace']){
+    let release!:(result:unknown)=>void;p.stopRequested=false;p.activeMessage={};p.knowledgeChars=0;
+    p.toolResult=()=>new Promise(r=>release=r);
+    const pending=p.handleTool('obsidian_query',{}),rejected=assert.rejects(pending,/请求已停止/);
+    if(mode==='cancel')p.stopRequested=true;else p.activeMessage={};
+    release({results:['old response']});await rejected;assert.equal(p.knowledgeChars,0);
+  }
+});
+
 test('AI memory settings preserve explicit opt-out; failed save rolls back and busy changes are rejected',async()=>{
   const p=new Deepsidian();p.state.settings.manageMemory=false;assert.equal(p.state.settings.manageMemory,false);
   let stops=0;p.disconnect=async()=>{stops++;};p.saveData=async()=>{throw Error('disk full');};

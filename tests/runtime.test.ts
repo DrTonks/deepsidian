@@ -23,7 +23,7 @@ test('real DSH bridge: tools, text stream, cancel, followup and process resume',
     if (input.messages.some((m:any) => Array.isArray(m.content) && m.content.some((c:any) => c.type === 'image_url' && c.image_url.url.startsWith('data:image/')))) sawImage = true;
     assert.equal(input.model, expectedModel);
     assert.equal(input.max_tokens, expectedTokens);
-    assert.deepEqual(input.tools.map((t:any) => t.function.name).sort(), ['memory_read', 'memory_search', 'obsidian_context', 'obsidian_metadata', 'obsidian_read', 'obsidian_search']);
+    assert.deepEqual(input.tools.map((t:any) => t.function.name).sort(), ['memory_read', 'memory_search', 'obsidian_base', 'obsidian_context', 'obsidian_metadata', 'obsidian_query', 'obsidian_read', 'obsidian_related', 'obsidian_resolve', 'obsidian_search']);
     if (input.messages.some((m:any) => typeof m.content === 'string' && m.content.includes('FIRST-QUESTION'))) resumeHistory = true;
     res.writeHead(200, {'Content-Type':'text/event-stream'});
     const chunk = (delta:object,finish_reason:string|null=null) => res.write(`data: ${JSON.stringify({id:'test',object:'chat.completion.chunk',created:0,model:'deepseek-chat',choices:[{index:0,delta,finish_reason}]})}\n\n`);

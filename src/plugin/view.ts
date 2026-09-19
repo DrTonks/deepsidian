@@ -166,9 +166,18 @@ export class LearningView extends ItemView {
       const chip = this.attachmentEl.createDiv('ds-attachment');
       if (file.image) chip.createEl('img', { attr: { src: `data:${file.image.mimeType};base64,${file.image.data}`, alt: file.name } });
       chip.createSpan({ text: file.name });
+      if(file.text!==undefined){const detail=chip.createEl('details');detail.createEl('summary',{text:`预览 · ${file.text.length} 字符`});detail.createEl('pre',{text:file.text,cls:'ds-proposal-text'});}
       const remove=this.iconButton(chip, 'x', `移除 ${file.name}`, () => { if(this.preparingAttachments)return;this.attachments = this.attachments.filter(f => f.id !== file.id); this.renderAttachments(); });
       remove.disabled=this.preparingAttachments;
     }
+  }
+  sourceSummary(){return this.attachments.map(file=>({name:file.name,text:file.text??''}));}
+  attachSource(name:string,text:string){
+    if(this.closed||this.preparingAttachments)throw Error('侧栏已关闭或正在准备发送');
+    if(this.attachments.length+this.submittedAttachments>=4)throw Error('最多4个附件，请先移除部分来源');
+    if(!text||text.length>6000)throw Error('片段须为1–6000字符');
+    if(this.attachments.some(a=>a.name===name&&a.text===text))throw Error('已附加相同片段');
+    this.attachments.push({id:crypto.randomUUID(),name,text});this.renderAttachments();
   }
   private async loadModels() {
     if (this.changing || this.plugin.busy) return;
@@ -204,7 +213,7 @@ export class LearningView extends ItemView {
     let text = this.input.value.trim() || (this.attachments.length ? '请结合这些资料解释我需要理解的重点。' : '');
     if (!text || this.plugin.busy || this.changing) return;
     if(text.startsWith('/')){
-      if(this.attachments.length && parseCommand(text)?.name!=='plan'){new Notice('此指令不接收附件，请先移除附件；草稿已保留');return;}
+      if(this.attachments.length && !['plan','context'].includes(parseCommand(text)?.name??'')){new Notice('此指令不接收附件，请先移除附件；草稿已保留');return;}
       this.changing=true;this.refreshStatus();
       try {
         const result=await this.plugin.runCommand(text);

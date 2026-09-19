@@ -1,4 +1,6 @@
 export const commands = [
+  { name: 'catalog', hint: '', description: '预览并新建文章管理 Base 与导航页（本地）' },
+  { name: 'context', hint: '[链接]', description: '预览本轮来源、关联笔记和标题/块片段' },
   { name: 'plan', hint: '<问题>', description: '为问题制定计划（单轮规划）' },
   { name: 'goal', hint: '[目标 | clear]', description: '设置或查看本会话目标（不自动续跑）' },
   { name: 'memory', hint: '', description: '管理本库记忆' },

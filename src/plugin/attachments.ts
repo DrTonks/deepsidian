@@ -1,7 +1,7 @@
 import type { PromptImage } from './dsh';
 
 export interface Attachment { id: string; name: string; text?: string; image?: PromptImage; }
-export const FILE_ACCEPT = '.md,.txt,.json,.csv,.ts,.tsx,.js,.jsx,.py,.css,.html,.yaml,.yml,.png,.jpg,.jpeg,.webp,.gif';
+export const FILE_ACCEPT = '.md,.base,.txt,.json,.csv,.ts,.tsx,.js,.jsx,.py,.css,.html,.yaml,.yml,.png,.jpg,.jpeg,.webp,.gif';
 export async function readAttachment(file: { name: string; size: number; arrayBuffer(): Promise<ArrayBuffer> }): Promise<Attachment> {
   const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
   const mime: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };

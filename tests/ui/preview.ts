@@ -8,6 +8,7 @@ import { WHALE_ICON } from '../../src/plugin/logo';
 import { addIcon } from './obsidian-mock';
 import {MemoryModal} from '../../src/plugin/memory/modal';
 import {OrganizerModal} from '../../src/plugin/memory/organizer-modal';
+import {SourcesModal} from '../../src/plugin/sources-modal';
 import {parseCommand} from '../../src/plugin/commands';
 import type { Chat } from '../../src/plugin/types';
 import { checkHistory } from './history-checks';
@@ -49,6 +50,17 @@ const plugin:any={
  models:[{provider:'deepseek-official',model:'deepseek-flash',name:'DeepSeek-V41-Flash',inputModalities:['text','image'],reasoning:{efforts:[{id:'off',name:'关闭'},{id:'high',name:'High'},{id:'max',name:'Max'}]}}],
  busy:false,stopRequested:false,runtimeVersion:TESTED_DSH,status:'DeepSeek-V41-Flash · 按需连接',toolEvents:[],includeContext:true,
  source:{path:'学习笔记/注意力机制.md',selection:'自回归生成',nearby:'已记录 Query、Key、Value 与注意力公式。'},
+ sourceSummary(){return this.view?.sourceSummary()??[];},
+ attachSource(name:string,text:string){this.view.attachSource(name,text);},
+ async knowledge(name:string,args:any){
+   // Synthetic knowledge fixtures exercise the production modal without reading a vault.
+   if(name==='obsidian_related')return {source:this.source.path,candidates:[{path:'学习笔记/KV cache.md',reasons:['当前笔记的链接','共同标签：Transformer']},{path:'学习笔记/推理优化.md',reasons:['链接到当前笔记']}]};
+   if(name==='obsidian_base')return {path:'_本地管理/文章管理.base',content:'filters:\n  and:\n    - file.inFolder("学习笔记")\nviews:\n  - type: table\n    name: 全部笔记',truncated:false};
+   const raw=String(args.link??'').replace(/^\[\[|\]\]$/g,'');
+   if(!raw||raw.includes('不存在'))throw Error('未找到笔记或引用目标');
+   const path=raw.split('#')[0];
+   return {path:path.endsWith('.md')?path:`${path}.md`,content:'## KV cache\n\n保存历史 token 的 Key 与 Value，生成新 token 时复用已有计算。\n\n与前端增量渲染类似：保留旧结果，仅计算新增部分。\n^kv-example',startLine:12,endLine:17,truncated:false};
+ },
  app:{workspace:{getActiveViewOfType:()=>null,openLinkText:async()=>{},getLeavesOfType:()=>[]},vault:{getFiles:()=>[],readBinary:async()=>new ArrayBuffer(0)}},
  sidebarActivated(){}, async selectChat(id:string){this.state.activeId=id;},
  attach(view:any){this.view=view;},detach(){},capture(){},persist:async()=>{},
@@ -58,7 +70,7 @@ const plugin:any={
  ask:async()=>{},stopAnswer(){},
  memory(){return {snapshot:async()=>({vaultId:'preview-vault',entries:memoryEntries,rules:memoryRules,revision:'preview'}),history:async()=>({revision:'preview',entries:[{id:'preview-delete',at:'2026-09-19 10:00',kind:'delete',summary:'删除 1 条记忆（合成预览）'}],canUndo:previewUndoAvailable,requiresRestoreConfirmation:previewUndoAvailable}),undo:async(_revision:string,options:any)=>{if(!options.restoreDeleted)throw Error('请确认恢复删除内容');previewUndoAvailable=false;},update:async(_rev:string,c:any)=>{if(c.add)memoryEntries.push({id:String(Date.now()),text:c.add,source:'合成预览记录',createdAt:'2026-09-13'});if(c.remove)memoryEntries=memoryEntries.filter(e=>e.id!==c.remove);if(c.edit)memoryEntries=memoryEntries.map(e=>e.id===c.edit.id?{...e,text:c.edit.text}:e);if(c.rules!==undefined)memoryRules=c.rules;}};},
  openMemory(tab:'entries'|'rules'='entries'){new MemoryModal(this,tab).open();},
- async runCommand(text:string){const c=parseCommand(text);if(c?.name==='memory')this.openMemory();else if(c?.name==='rules')this.openMemory('rules');else if(c?.name==='plan')return {question:c.args};else if(c?.name==='remember')await this.memory().update('preview',{add:c.args});return {};},
+ async runCommand(text:string){const c=parseCommand(text);if(c?.name==='memory')this.openMemory();else if(c?.name==='rules')this.openMemory('rules');else if(c?.name==='context')new SourcesModal(this,c.args).open();else if(c?.name==='plan')return {question:c.args};else if(c?.name==='remember')await this.memory().update('preview',{add:c.args});return {};},
 };
 const view=new LearningView({app:plugin.app,container:document.getElementById('app')} as any,plugin);
 await view.onOpen();
@@ -70,6 +82,27 @@ if(screen==='memory-maintenance'){const modal:any=new MemoryModal(plugin);modal.
 if(screen==='trace') Array.from(document.querySelectorAll<HTMLButtonElement>('.ds-tabs button')).find(b=>b.textContent==='轨迹')?.click();
 if(screen==='setup') new SetupModal(plugin).open();
 if(screen==='organizer')new OrganizerModal(plugin).open();
+if(screen==='context'||screen==='context-tests'){
+  const modal=new SourcesModal(plugin,'[[学习笔记/KV cache#KV cache]]');modal.open();
+  await new Promise(r=>setTimeout(r,0));
+  if(screen==='context-tests'){
+    const root=modal.contentEl;
+    const findButton=(text:string)=>Array.from(root.querySelectorAll('button')).find(b=>b.textContent===text)!;
+    if(!root.textContent?.includes('行 12–17'))throw Error('source reference preview missing');
+    const input=root.querySelector<HTMLInputElement>('input[aria-label="笔记链接或块引用"]')!;
+    input.value='不存在';findButton('定位与预览').click();await new Promise(r=>setTimeout(r,0));
+    if(!root.textContent?.includes('未找到笔记'))throw Error('source missing reference error not visible');
+    findButton('学习笔记/推理优化.md').click();await new Promise(r=>setTimeout(r,0));
+    if(input.value!=='学习笔记/推理优化.md')throw Error('related source did not resolve');
+    findButton('附加片段').click();
+    if(plugin.sourceSummary().length!==1||!findButton('附加片段').disabled)throw Error('source attach failed');
+    const detail=document.querySelector<HTMLDetailsElement>('.ds-attachment details');
+    if(!detail)throw Error('composer attachment preview missing');
+    detail.querySelector('summary')!.click();
+    if(!detail.open||!detail.textContent?.includes('历史 token'))throw Error('composer attachment preview inaccessible');
+    document.body.dataset.contextChecks='passed';
+  }
+}
 if(screen==='idle-organizer'){const pending={id:'synthetic-idle',batch:await plugin.extractMemory()};plugin.state.idleMemory={pending};new OrganizerModal(plugin,pending).open();}
 if(screen==='settings'){
   const root=document.getElementById('app')!;root.empty();root.style.cssText='max-width:920px;padding:24px;overflow:auto';

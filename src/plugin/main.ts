@@ -25,6 +25,9 @@ import { extractionSources, extractionPrompt, parseProposals, sourceKey, memoryS
 import { runOrganizer } from './memory/organizer';
 import { OrganizerModal } from './memory/organizer-modal';
 import { MemoryScheduler, newIdleMemory, type IdleMemoryState } from './memory/scheduler';
+import {KnowledgeTools} from './knowledge';
+import {CatalogModal} from './catalog';
+import {SourcesModal} from './sources-modal';
 
 export default class Deepsidian extends Plugin {
   state: Saved = { settings: { ...defaults }, chats: [], activeId: '' };
@@ -57,6 +60,17 @@ export default class Deepsidian extends Plugin {
   private activeRecall?: Recall;
   private organizerAbort?:AbortController;
   private memoryReadChars = 0;
+  private knowledgeChars=0;
+  private knowledgeCalls=0;
+  sourceSummary(){return this.view?.sourceSummary()??[];}
+  attachSource(name:string,text:string){if(!this.view)throw Error('请先打开学习侧栏');this.view.attachSource(name,text);}
+  async knowledge(name:string,args:Record<string,unknown>,source=this.source.path){
+    return new KnowledgeTools(this.app,path=>this.assertContained(path),file=>this.readCurrent(file)).handle(name,args,source);
+  }
+  private async readCurrent(file:TFile){
+    const open=this.app.workspace.getLeavesOfType('markdown').map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===file.path) as MarkdownView|undefined;
+    return open?open.editor.getValue():this.app.vault.read(file);
+  }
   private activeManager?:MemoryManager;
   async setManageMemory(enabled:boolean) {
     if(this.busy)throw Error('请先结束当前回答，再修改 AI 记忆管理权限');
@@ -114,6 +128,8 @@ export default class Deepsidian extends Plugin {
     this.registerView(VIEW, leaf => new LearningView(leaf, this));
     this.addRibbonIcon('deepsidian-whale', 'Deepsidian 学习助手', () => void this.open());
     this.addCommand({ id: 'open', name: '打开学习侧栏', callback: () => void this.open() });
+    this.addCommand({id:'catalog',name:'整理文章目录',callback:()=>new CatalogModal(this).open()});
+    this.addCommand({id:'context',name:'预览来源与关联笔记',callback:()=>new SourcesModal(this).open()});
     this.addCommand({ id: 'explain-selection', name: '解释选中的术语', editorCallback: (editor, view) => {
       this.includeContext = true;
       if (view instanceof MarkdownView) this.capture(view);
@@ -236,7 +252,9 @@ export default class Deepsidian extends Plugin {
     const {name,args}=command;
     if(!commands.some(c=>c.name===name))throw Error(`未知指令 /${name}；输入 / 查看可用指令`);
     if(['memory','rules','organize','extract','new','connect','help'].includes(name) && args)throw Error(`/${name} 不接受参数`);
-    if(this.busy && ['plan','goal','new','connect'].includes(name))throw Error('请先结束当前回答');
+    if(this.busy && ['plan','goal','new','connect','catalog'].includes(name))throw Error('请先结束当前回答');
+    if(name==='catalog'){if(args)throw Error('/catalog 不接受参数，请在预览窗口选择目录');new CatalogModal(this).open();return {};}
+    if(name==='context'){new SourcesModal(this,args).open();return {};}
     if(name==='plan'){if(!args)throw Error('用法：/plan 要规划的问题');return {question:`请先为以下问题制定可检查的计划，说明目标、步骤、依赖和验收条件。本轮仅研究和规划，不执行实施步骤。\n\n${args}`};}
     if(name==='goal'){
       if(args.length>2000)throw Error('目标最多 2000 字符');
@@ -337,6 +355,8 @@ export default class Deepsidian extends Plugin {
   detach(view: LearningView) { if (this.view === view) this.view = undefined; }
   capture(view: MarkdownView | null = this.app.workspace.getActiveViewOfType(MarkdownView) ?? this.lastMarkdown ?? null) {
     if (!this.includeContext) return;
+    const active=this.app.workspace.getActiveFile?.();
+    if(active?.extension==='base'){this.source={path:active.path,selection:'',nearby:'当前是Bases管理配置；用obsidian_base读取配置，用obsidian_query按支持的属性筛选实际文章，不能把配置当成已求值表格。'};return;}
     if (!view?.file) return;
     this.lastMarkdown = view;
     const editor = view.editor, from = editor.getCursor('from').line, to = editor.getCursor('to').line;
@@ -428,7 +448,7 @@ export default class Deepsidian extends Plugin {
     if (prompt.length > 40000) { new Notice('本次上下文超过 40000 字符，请减少附件或选区。'); return; }
     const chat = this.chat!;
     this.busy = true; this.stopRequested = false; this.activeSource = source;
-    this.activeRecall = undefined; this.activeManager=undefined; this.memoryReadChars = 0; this.view?.refreshStatus();
+    this.activeRecall = undefined; this.activeManager=undefined; this.memoryReadChars = 0; this.knowledgeChars=0;this.knowledgeCalls=0; this.view?.refreshStatus();
     try {
       if(this.state.settings.useMemory && chat.useMemory!==false) this.activeRecall = prepareRecall(await this.memory().snapshot(), question);
       if(this.state.settings.manageMemory && chat.contributeMemory!==false && this.activeRecall) {
@@ -454,6 +474,7 @@ export default class Deepsidian extends Plugin {
     if (chat.messages.length === 1) chat.title = question.slice(0, 28);
     const answer: Message = { role: 'assistant', text: '', status: '生成中', trace: [traceEntry({type:'memory/snapshot',data:{enabled:!!this.activeRecall,revision:this.activeRecall?.snapshot.revision,index:this.activeRecall?.index??[],note:'仅记录提供给模型的索引；不代表模型已使用，正文读取见memory/read'}})], startedAt: Date.now() };
     chat.messages.push(answer); this.activeMessage = answer;
+    answer.trace?.push(traceEntry({type:'context/sources',data:{current:source.path,selectionChars:source.selection.length,nearbyChars:source.nearby.length,attachments:attachments.map(a=>({name:a.name,chars:a.text?.length??0,image:!!a.image})),initialChars:prompt.length,initialLimit:40000,toolOutputLimit:48000}}));
     this.view?.renderMessages(); this.view?.refreshStatus(); this.view?.refreshChats();
     try {
       await this.persist();
@@ -468,6 +489,17 @@ export default class Deepsidian extends Plugin {
   }
   stopAnswer() { this.stopRequested = true; this.organizerAbort?.abort(); this.client?.cancel(); this.view?.refreshStatus(); }
   async handleTool(name: string, args: Record<string, unknown>) {
+    if(!name.startsWith('obsidian_'))return this.toolResult(name,args);
+    if(!this.busy||this.stopRequested)throw Error('当前请求已停止');
+    if(++this.knowledgeCalls>16)throw Error('本轮笔记工具最多16次调用');
+    const request=this.activeMessage;
+    const result=await this.toolResult(name,args);
+    if(!this.busy||this.stopRequested||request!==this.activeMessage)throw Error('当前请求已停止');
+    const size=JSON.stringify(result).length;
+    if(size>24000||this.knowledgeChars+size>48000)throw Error('笔记工具上下文预算不足，请缩小查询或下一轮继续');
+    this.knowledgeChars+=size;return result;
+  }
+  private async toolResult(name:string,args:Record<string,unknown>) {
     if (!this.busy) throw Error('当前没有活动的学习请求');
     this.toolEvents.push(`调用 ${name}${name === 'obsidian_read' ? ' · ' + String(args.path) : name === 'obsidian_search' ? ' · ' + String(args.query) : ''}`);
     this.toolEvents = this.toolEvents.slice(-30); this.view?.refreshTools();
@@ -494,6 +526,7 @@ export default class Deepsidian extends Plugin {
       return result;
     }
     if (name === 'obsidian_context') return this.activeSource;
+    if(['obsidian_query','obsidian_resolve','obsidian_related','obsidian_base'].includes(name))return this.knowledge(name,args,this.activeSource.path);
     if (name === 'obsidian_metadata') {
       const path = safeNotePath(args.path), file = this.app.vault.getAbstractFileByPath(path);
       if (!(file instanceof TFile)) throw Error('找不到笔记');

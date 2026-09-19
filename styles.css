@@ -190,3 +190,33 @@
 .ds-settings .ds-settings-help summary { cursor: pointer; }
 .ds-settings summary:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: -3px; }
 @media (max-width: 600px) { .ds-settings .setting-item { align-items: flex-start; flex-direction: column; gap: 12px; } .ds-settings .setting-item-control { width: 100%; justify-content: flex-start; } }
+
+/* Local source previews and catalog plans follow the current Obsidian theme. */
+.ds-source-resolve { display:flex; gap:8px; align-items:center; margin:18px 0 12px; }
+.ds-source-resolve input { flex:1; min-width:0; }
+.ds-source-resolve button { flex-shrink:0; }
+.ds-memory-modal:has(.ds-source-resolve) > p,
+.ds-catalog-modal > p { color:var(--text-muted); font-size:13px; line-height:1.65; overflow-wrap:anywhere; }
+.ds-memory-modal:has(.ds-source-resolve) > details,
+.ds-catalog-modal > details { border:1px solid var(--background-modifier-border); border-radius:8px; padding:10px 12px; margin:8px 0; }
+.ds-memory-modal:has(.ds-source-resolve) summary,
+.ds-catalog-modal summary { cursor:pointer; font-size:13px; overflow-wrap:anywhere; }
+.ds-source-resolve ~ div > button { max-width:100%; height:auto; white-space:normal; overflow-wrap:anywhere; text-align:left; }
+.ds-source-resolve ~ div > p { color:var(--text-muted); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.ds-source-resolve ~ div > h3 { border-top:1px solid var(--background-modifier-border); padding-top:18px; margin-top:24px; font-size:14px; }
+.ds-catalog-modal { max-height:80vh; overflow:auto; min-width:0; }
+.ds-catalog-modal .setting-item-control { min-width:0; flex-wrap:wrap; }
+.ds-catalog-modal .setting-item-control input { max-width:100%; }
+.ds-catalog-modal pre { background:var(--background-secondary); padding:12px; border-radius:6px; overflow-wrap:anywhere; font-size:12px; line-height:1.6; }
+.deepsidian .ds-attachment { flex-wrap:wrap; min-width:0; }
+.deepsidian .ds-attachment > span { min-width:0; flex:1; }
+.deepsidian .ds-attachment details { min-width:0; max-width:100%; font-size:11px; }
+.deepsidian .ds-attachment details[open] { flex-basis:100%; }
+.deepsidian .ds-attachment summary { cursor:pointer; color:var(--text-muted); }
+.deepsidian .ds-attachment pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:180px; overflow:auto; font-family:var(--font-text); margin:8px 0 0; line-height:1.6; }
+@media (max-width:600px) {
+  .ds-source-resolve { flex-wrap:wrap; }
+  .ds-source-resolve input { flex-basis:100%; }
+  .ds-catalog-modal .setting-item { flex-direction:column; align-items:flex-start; gap:10px; }
+  .ds-catalog-modal .setting-item-control { width:100%; }
+}

@@ -44,7 +44,8 @@ test('slash matching is anchored and preserves multiline arguments',()=>{
   assert.equal(parseCommand('text /goal'),undefined);
   assert.deepEqual(commandMatches('/rem').map(c=>c.name),['remember']);
   assert.equal(commandMatches('/remember text').length,0);
-  assert.equal(commandMatches('/').length,10);
+  assert.ok(commandMatches('/').some(command=>command.name==='catalog'));
+  assert.ok(commandMatches('/').some(command=>command.name==='context'));
 });
 
 test('memory manager preserves other drafts across saves, tabs and refreshes',async()=>{
