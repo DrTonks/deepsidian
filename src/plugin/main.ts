@@ -20,7 +20,7 @@ import { MemoryStore } from './memory/store';
 import { MemoryModal } from './memory/modal';
 import { prepareRecall, readRecall, MEMORY_DISABLED, type Recall } from './memory/recall';
 import { commands, parseCommand } from './commands';
-import { extractionSources, extractionPrompt, parseProposals, sourceKey, type ProposalBatch } from './memory/proposals';
+import { extractionSources, extractionPrompt, parseProposals, sourceKey, memoryStartKey, memorySourceStart, type ProposalBatch } from './memory/proposals';
 import { runOrganizer } from './memory/organizer';
 import { OrganizerModal } from './memory/organizer-modal';
 import { MemoryScheduler, newIdleMemory, type IdleMemoryState } from './memory/scheduler';
@@ -155,7 +155,7 @@ export default class Deepsidian extends Plugin {
       controller.signal.throwIfAborted();
       const raw=await this.runMemoryModel(prompt,controller.signal);
       controller.signal.throwIfAborted();
-      return {chatId,title:frozen.title,snapshot,sources,proposals:parseProposals(raw,snapshot,sources)};
+      return {chatId,title:frozen.title,snapshot,sources,proposals:parseProposals(raw,snapshot,sources),memoryPolicyVersion:frozen.memoryPolicyVersion??0};
     } finally {signal.removeEventListener('abort',abort);this.organizerAbort=undefined;this.busy=false;this.view?.refreshStatus();}
   }
   private async runMemoryModel(prompt:string,signal:AbortSignal) {
@@ -173,10 +173,12 @@ export default class Deepsidian extends Plugin {
       if(pendingId && this.state.idleMemory?.pending?.id!==pendingId)throw Error('待审提案已改变，请重新打开');
       const chat=this.state.chats.find(c=>c.id===batch.chatId);
       if(!chat || chat.contributeMemory===false)throw Error('来源会话不存在或已关闭贡献');
+      if((batch.memoryPolicyVersion??0)!==(chat.memoryPolicyVersion??0))throw Error('会话来源范围已改变，请重新生成提案');
+      const start=memorySourceStart(chat);
       if(!selected.length || new Set(selected).size!==selected.length || selected.some(i=>!Number.isInteger(i)||!batch.proposals[i]))throw Error('请选择有效提案');
       for(const source of batch.sources) {
         const message=chat.messages[source.index];
-        if(!message || message.role!=='user' || sourceKey(chat.id,source.index,message.text)!==source.key)throw Error('来源消息已改变，请重新生成提案');
+        if(source.index<start || !message || message.role!=='user' || sourceKey(chat.id,source.index,message.text)!==source.key)throw Error('来源消息已改变或已排除，请重新生成提案');
       }
       const snapshot=await this.memory().snapshot();
       if(snapshot.revision!==batch.snapshot.revision)throw Error('记忆或规则已改变，请重新生成提案');
@@ -190,10 +192,32 @@ export default class Deepsidian extends Plugin {
     if(this.busy) throw Error('请先结束当前回答，再修改会话记忆设置');
     const chat = this.state.chats.find(c => c.id === id);
     if(!chat) throw Error('会话不存在');
-    const patch = Object.fromEntries(Object.entries(change).filter(([key,value]) => ['useMemory','contributeMemory'].includes(key) && typeof value === 'boolean'));
+    const patch:Partial<Chat> = Object.fromEntries(Object.entries(change).filter(([key,value]) => ['useMemory','contributeMemory'].includes(key) && typeof value === 'boolean'));
+    const policyChanged=patch.contributeMemory!==undefined && (chat.contributeMemory!==false)!==patch.contributeMemory;
+    if(policyChanged)patch.memoryPolicyVersion=(chat.memoryPolicyVersion??0)+1;
     this.busy=true;
-    try {await this.saveChange(draft => {Object.assign(draft.chats.find(c => c.id === id)!,patch);}, () => {Object.assign(chat,patch);});}
+    try {await this.saveChange(draft => {Object.assign(draft.chats.find(c => c.id === id)!,patch);if(policyChanged && draft.idleMemory?.pending?.batch.chatId===id)delete draft.idleMemory.pending;}, () => {Object.assign(chat,patch);if(policyChanged && this.state.idleMemory?.pending?.batch.chatId===id)delete this.state.idleMemory.pending;});}
     finally {this.busy=false;this.view?.refreshStatus();}
+  }
+  async setChatMemoryStart(id:string,mode:'now'|'all') {
+    this.memoryActivity();
+    if(this.busy || this.disposed)throw Error('请先结束当前操作，再修改来源范围');
+    const chat=this.state.chats.find(c=>c.id===id);if(!chat)throw Error('会话不存在');
+    if(mode!=='now' && mode!=='all')throw Error('无效的来源范围');
+    const memoryStart=mode==='now'?{index:chat.messages.length,key:memoryStartKey(chat,chat.messages.length)}:undefined;
+    const version=(chat.memoryPolicyVersion??0)+1;
+    this.busy=true;
+    try {await this.saveChange(draft=>{
+      Object.assign(draft.chats.find(c=>c.id===id)!,{memoryStart,memoryPolicyVersion:version});
+      if(draft.idleMemory){if(draft.idleMemory.pending?.batch.chatId===id)delete draft.idleMemory.pending;delete draft.idleMemory.cursors[id];}
+    },()=>{
+      Object.assign(chat,{memoryStart,memoryPolicyVersion:version});
+      if(this.state.idleMemory){if(this.state.idleMemory.pending?.batch.chatId===id)delete this.state.idleMemory.pending;delete this.state.idleMemory.cursors[id];}
+    });} finally {this.busy=false;this.view?.refreshStatus();}
+  }
+  memoryContributionPreview(id:string){
+    const chat=this.state.chats.find(c=>c.id===id);if(!chat)throw Error('会话不存在');
+    return {start:memorySourceStart(chat),sources:chat.contributeMemory===false?[]:extractionSources(chat)};
   }
   async organizeMemory(){const s=await this.memory().snapshot();await this.memory().update(s.revision,{organize:true});new Notice('已重建记忆索引；未调用模型或提炼聊天');}
   async runCommand(text:string):Promise<{question?:string}> {

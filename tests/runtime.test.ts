@@ -11,7 +11,7 @@ test('real DSH bridge: tools, text stream, cancel, followup and process resume',
   const env = discover();
   mkdirSync('.runs', {recursive:true});
   const dir = mkdtempSync(resolve('.runs','bridge-test-'));
-  const home = join(dir,'config'); mkdirSync(home); writeFileSync(join(home,'settings.yaml'),'{}');
+  const home = join(dir,'config'); mkdirSync(home); writeFileSync(join(home,'settings.yaml'),JSON.stringify({'llm-deepseek':{protocol:'chat-completions'}}));
   let hold = false, resumeHistory = false;
   let expectedModel = 'deepseek-chat', expectedTokens = 4096;
   let sawImage = false;
@@ -129,7 +129,7 @@ test('real DSH memory search/read follows corrected and deleted snapshots across
   const {MemoryStore}=await import('../src/plugin/memory/store.ts');
   const {prepareRecall,readRecall}=await import('../src/plugin/memory/recall.ts');
   const env=discover();mkdirSync('.runs',{recursive:true});const dir=mkdtempSync(resolve('.runs','memory-runtime-'));
-  const home=join(dir,'config');mkdirSync(home);writeFileSync(join(home,'settings.yaml'),'{}');
+  const home=join(dir,'config');mkdirSync(home);writeFileSync(join(home,'settings.yaml'),JSON.stringify({'llm-deepseek':{protocol:'chat-completions'}}));
   const store=new MemoryStore(join(dir,'memory'));let snapshot=await store.snapshot();
   await store.update(snapshot.revision,{add:'MEMORY_ORIGINAL: prefer frontend examples'});snapshot=await store.snapshot();
   const id=snapshot.entries[0]!.id;let recall=prepareRecall(snapshot,'examples'),expected='MEMORY_ORIGINAL';const calls:string[]=[];
@@ -161,7 +161,7 @@ test('real DSH memory search/read follows corrected and deleted snapshots across
 
 test('real DSH memory organizer has no tools, isolates requests, and cancels without a result', {timeout:60000},async()=>{
   const {runOrganizer}=await import('../src/plugin/memory/organizer.ts');
-  const env=discover();const dir=mkdtempSync(resolve('.runs','organizer-test-'));const home=join(dir,'config');mkdirSync(home);writeFileSync(join(home,'settings.yaml'),'{}');
+  const env=discover();const dir=mkdtempSync(resolve('.runs','organizer-test-'));const home=join(dir,'config');mkdirSync(home);writeFileSync(join(home,'settings.yaml'),JSON.stringify({'llm-deepseek':{protocol:'chat-completions'}}));
   let requests=0,hold=false,held!:()=>void;
   const server=createServer(async(req,res)=>{
     let body='';for await(const chunk of req)body+=chunk;

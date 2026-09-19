@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile, rename, unlink, lstat, realpath } from 'node:fs/promises';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
+import { hostname } from 'node:os';
 
 export const DEFAULT_RULES = `# 本库记忆整理规则
 - 保存用户明确表达的持久偏好、目标和决定，并保留来源。
@@ -16,8 +17,15 @@ interface State { version: 1; vaultId: string; deleted: string[]; excludedSource
 export interface MemorySnapshot { vaultId: string; entries: Entry[]; rules: string; revision: string; excludedSources?:string[]; }
 export interface MemoryChange { id?:string; text:string; source:string; sourceKeys:string[]; }
 interface Transaction { version: 1; before: Record<string, string | null>; after: Record<string, string>; }
-const FILES = ['topics/general.md', 'RULES.md', 'state.json', 'MEMORY.md'];
+const CORE_FILES = ['topics/general.md', 'RULES.md', 'state.json', 'MEMORY.md'];
+const FILES = [...CORE_FILES, 'journal.json'];
+const JOURNAL_BYTES = 512 * 1024;
+export interface JournalSummary { id:string; at:string; kind:string; summary:string; }
+interface JournalRecord extends JournalSummary { before?:Record<string,string>; afterHash:string; restoresDeleted:boolean; }
+interface Journal { version:1; records:JournalRecord[]; }
+export interface MemoryHistory { revision:string; entries:JournalSummary[]; canUndo:boolean; requiresRestoreConfirmation:boolean; }
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
+const coreHash = (files:Record<string,string|null>) => digest(JSON.stringify(CORE_FILES.map(p=>files[p])));
 export function encodeEntries(entries: Entry[]) {
   return '# 本库记忆\n\n' + entries.map(e => `<!-- deepsidian-entry ${JSON.stringify({id:e.id,createdAt:e.createdAt,source:e.source,sourceKeys:e.sourceKeys})} -->\n${e.text}\n<!-- /deepsidian-entry -->`).join('\n\n') + '\n';
 }
@@ -64,7 +72,7 @@ export class MemoryStore {
   }
   private async read(path: string): Promise<string | null> {
     const file = await this.safe(path);
-    try { const info = await lstat(file); if(!info.isFile() || info.size > 1_000_000) throw Error('记忆文件过大或不是文件'); return await readFile(file,'utf8'); }
+    try { const info = await lstat(file); const limit=path==='transaction.json'?4_000_000:path==='journal.json'?JOURNAL_BYTES:1_000_000; if(!info.isFile() || info.size > limit) throw Error('记忆文件过大或不是文件'); return await readFile(file,'utf8'); }
     catch(e:any) { if(e.code==='ENOENT') return null; throw e; }
   }
   private async atomic(path: string, text: string) {
@@ -74,14 +82,35 @@ export class MemoryStore {
   }
   private async locked<T>(fn: () => Promise<T>): Promise<T> {
     await mkdir(this.root,{recursive:true}); await this.safe('writer.lock');
-    // Never automatically remove a stale lock: another host may still own it.
     const lock = await this.safe('writer.lock');
-    try { await writeFile(lock,JSON.stringify({pid:process.pid,startedAt:new Date().toISOString()}),{flag:'wx'}); }
-    catch(e:any) { if(e.code==='EEXIST') throw Error('记忆正在写入，或上次异常留下 writer.lock；确认没有其他 Obsidian 实例写入后再移除锁文件'); throw e; }
+    // All acquisitions take this gate, so another contender cannot replace a
+    // dead writer between our liveness check and unlink. A crashed gate is never
+    // auto-reclaimed: recovery itself must not create a second recovery race.
+    const gate=await this.safe('writer.lock.guard');
+    try {await writeFile(gate,JSON.stringify({host:hostname(),pid:process.pid}),{flag:'wx'});}
+    catch(e:any){if(e.code==='EEXIST')throw Error('writer.lock.guard 正在使用或异常遗留；请确认所有实例已停止后再移除');throw e;}
+    const token=randomUUID();
+    try {
+      const existing=await this.read('writer.lock');
+      if(existing!==null) {
+        let owner:any;try{owner=JSON.parse(existing);}catch{throw Error('writer.lock 来源未知，请确认所有实例已停止后再移除');}
+        if(owner.host!==hostname() || !Number.isSafeInteger(owner.pid) || owner.pid<=0 || typeof owner.token!=='string')throw Error('writer.lock 来自未知或其他主机，请人工确认');
+        let dead=false;
+        try {process.kill(owner.pid,0);}catch(e:any){if(e.code==='ESRCH')dead=true;}
+        if(!dead)throw Error('writer.lock 持有者仍活动或无法确认状态');
+        if(await this.read('writer.lock')!==existing)throw Error('writer.lock 已变化，请重试');
+        await unlink(lock);
+      }
+      await writeFile(lock,JSON.stringify({host:hostname(),pid:process.pid,token,startedAt:new Date().toISOString()}),{flag:'wx'});
+    } finally {await unlink(gate);}
     try {
       await this.safe('topics'); await mkdir(join(this.root,'topics'),{recursive:true});
       await this.recover(); return await fn();
-    } finally { await unlink(lock); }
+    } finally {
+      // Do not delete a lock replaced by an external actor.
+      const current=await this.read('writer.lock');
+      if(current && JSON.parse(current).token===token)await unlink(lock);
+    }
   }
   private async recover() {
     const raw = await this.read('transaction.json'); if(!raw) return;
@@ -99,7 +128,9 @@ export class MemoryStore {
   private revision(files: Record<string,string|null>) { return digest(JSON.stringify(files)); }
   private async commit(before: Record<string,string|null>, after: Record<string,string>) {
     if(this.revision(await this.files())!==this.revision(before)) throw Error('记忆文件已被修改，请刷新后重试');
-    await this.atomic('transaction.json',JSON.stringify({version:1,before,after}));
+    const transaction=JSON.stringify({version:1,before,after});
+    if(Buffer.byteLength(transaction)>4_000_000 || Object.entries(after).some(([p,text])=>Buffer.byteLength(text)>(p==='journal.json'?JOURNAL_BYTES:1_000_000)))throw Error('记忆事务超过存储上限，未写入');
+    await this.atomic('transaction.json',transaction);
     await this.recover();
   }
   private async initialized() {
@@ -111,10 +142,59 @@ export class MemoryStore {
       files=await this.files();
     }
     const state=JSON.parse(files['state.json']!);
-    if(state.version!==1 || typeof state.vaultId!=='string' || !Array.isArray(state.deleted) || FILES.some(p=>files[p]===null)) throw Error('记忆版本或文件集合不完整');
+    if(state.version!==1 || typeof state.vaultId!=='string' || !Array.isArray(state.deleted) || CORE_FILES.some(p=>files[p]===null)) throw Error('记忆版本或文件集合不完整');
     if(state.excludedSources!==undefined && (!Array.isArray(state.excludedSources)||state.excludedSources.some((key:unknown)=>typeof key!=='string'||!/^[a-f0-9]{64}$/.test(key))))throw Error('记忆来源排除记录损坏');
     return files;
   }
+  private journal(files:Record<string,string|null>):Journal {
+    if(files['journal.json']===null)return {version:1,records:[]};
+    const journal=JSON.parse(files['journal.json']!);
+    if(journal.version!==1 || !Array.isArray(journal.records) || journal.records.length>10)throw Error('记忆变更日志损坏');
+    for(const r of journal.records) {
+      if(!r || typeof r.id!=='string' || typeof r.at!=='string' || typeof r.kind!=='string' || typeof r.summary!=='string' || !/^[a-f0-9]{64}$/.test(r.afterHash) || typeof r.restoresDeleted!=='boolean'
+        || (r.before!==undefined && (typeof r.before!=='object' || r.before===null || Object.keys(r.before).length!==CORE_FILES.length || CORE_FILES.some(p=>typeof r.before[p]!=='string'))))throw Error('记忆变更日志损坏');
+    }
+    return journal;
+  }
+  private withJournal(before:Record<string,string|null>,after:Record<string,string>,kind:string,summary:string,restoresDeleted=false,undoable=true) {
+    const journal=this.journal(before);
+    const record:JournalRecord={id:randomUUID(),at:new Date().toISOString(),kind,summary,afterHash:coreHash({...before,...after}),restoresDeleted,
+      ...(undoable?{before:Object.fromEntries(CORE_FILES.map(p=>[p,before[p]!]))}:{})};
+    journal.records.push(record);
+    while(journal.records.length>10 || (journal.records.length>1 && Buffer.byteLength(JSON.stringify(journal))>JOURNAL_BYTES))journal.records.shift();
+    if(Buffer.byteLength(JSON.stringify(journal))>JOURNAL_BYTES){delete record.before;record.summary+='（超过日志容量，不可撤销）';}
+    return {...after,'journal.json':JSON.stringify(journal)};
+  }
+  /** Journal retains previous personal text, including deleted content. It is
+   * bounded by both ten operations and 512 KiB; deletion is not secure erasure. */
+  history():Promise<MemoryHistory> {return this.run(async()=>{
+    const f=await this.initialized(),journal=this.journal(f),latest=journal.records.at(-1);
+    const canUndo=!!latest?.before && latest.afterHash===coreHash(f);
+    return {revision:this.revision(f),entries:journal.records.slice().reverse().map(({id,at,kind,summary})=>({id,at,kind,summary})),canUndo,requiresRestoreConfirmation:canUndo && !!latest?.restoresDeleted};
+  });}
+  undo(revision:string,options:{restoreDeleted?:boolean}={}) {return this.run(async()=>{
+    const f=await this.initialized();if(this.revision(f)!==revision)throw Error('记忆已改变，请刷新后重试');
+    const latest=this.journal(f).records.at(-1);
+    if(!latest?.before || latest.afterHash!==coreHash(f))throw Error('最近一次变更不可撤销，或文件已被外部修改');
+    if(latest.restoresDeleted && !options.restoreDeleted)throw Error('撤销删除将恢复已遗忘的记忆，请明确确认恢复');
+    const previous=latest.before,entries=decodeEntries(previous['topics/general.md']!),currentEntries=decodeEntries(f['topics/general.md']!);
+    const state:State=JSON.parse(f['state.json']!),oldState:State=JSON.parse(previous['state.json']!);
+    if(oldState.version!==1 || oldState.vaultId!==state.vaultId || !Array.isArray(oldState.deleted) || oldState.deleted.some(id=>typeof id!=='string')
+      || (oldState.excludedSources!==undefined && (!Array.isArray(oldState.excludedSources) || oldState.excludedSources.some(key=>typeof key!=='string'||!/^[a-f0-9]{64}$/.test(key))))
+      || entries.length>500 || Buffer.byteLength(previous['topics/general.md']!)>128*1024 || previous['RULES.md']!.length>12000)throw Error('撤销快照状态损坏');
+    const restoredIds=new Set(entries.map(e=>e.id));
+    const removed=currentEntries.filter(e=>!restoredIds.has(e.id));
+    const retractedSources=currentEntries.flatMap(entry=>{
+      const restored=entries.find(e=>e.id===entry.id);
+      return (entry.sourceKeys??[]).filter(key=>!restored?.sourceKeys?.includes(key));
+    });
+    // Exclusions are monotonic, even when a user explicitly restores a deleted
+    // entry. Restoration permits recall but never re-authorizes old extraction.
+    state.excludedSources=[...new Set([...(state.excludedSources??[]),...(oldState.excludedSources??[]),...retractedSources])];
+    state.deleted=[...new Set([...state.deleted,...oldState.deleted,...removed.map(e=>e.id)])].filter(id=>!restoredIds.has(id));
+    const after={'topics/general.md':encodeEntries(entries),'RULES.md':previous['RULES.md']!,'state.json':JSON.stringify(state),'MEMORY.md':this.index(entries)};
+    await this.commit(f,this.withJournal(f,after,'undo',`已撤销：${latest.summary}`,false,false));
+  });}
   private index(entries:Entry[]) { return '# 记忆索引（自动生成，请通过管理页编辑正文）\n\n'+entries.slice(0,50).map(e=>`- ${e.id}：${e.text.replace(/\s+/g,' ').slice(0,90)}`).join('\n')+'\n'; }
   snapshot() { return this.run(async()=>{ const f=await this.initialized(); const state:State=JSON.parse(f['state.json']!);return {vaultId:state.vaultId,excludedSources:state.excludedSources??[],entries:decodeEntries(f['topics/general.md']!),rules:f['RULES.md']!,revision:this.revision(f)}; }); }
   update(revision:string, change: {add?:string; source?:string; edit?:{id:string;text:string}; remove?:string; rules?:string; organize?:boolean; batch?:MemoryChange[]}) {
@@ -141,7 +221,10 @@ export class MemoryStore {
       if(change.rules!==undefined && change.rules.length>12000) throw Error('整理规则超过 12000 字符');
       // Local organization rebuilds the index only; it does not invent or merge facts.
       const body=encodeEntries(entries);if(Buffer.byteLength(body)>128*1024)throw Error('首版主题文件上限 128 KiB');
-      await this.commit(f,{'topics/general.md':body,'state.json':JSON.stringify(state),'RULES.md':change.rules??f['RULES.md']!,'MEMORY.md':this.index(entries)});
+      const kind=change.remove?'delete':change.batch?'batch':change.edit?'edit':change.add!==undefined?'add':change.rules!==undefined?'rules':'organize';
+      const summary=({delete:'删除记忆',batch:`确认 ${change.batch?.length??0} 项记忆提案`,edit:'编辑记忆',add:'新增记忆',rules:'修改整理规则',organize:'重建记忆索引'} as Record<string,string>)[kind]!;
+      const after={'topics/general.md':body,'state.json':JSON.stringify(state),'RULES.md':change.rules??f['RULES.md']!,'MEMORY.md':this.index(entries)};
+      await this.commit(f,this.withJournal(f,after,kind,summary,!!change.remove));
     });
   }
 }

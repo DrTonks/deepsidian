@@ -11,6 +11,7 @@ import {parseCommand} from '../../src/plugin/commands';
 import type { Chat } from '../../src/plugin/types';
 import { checkHistory } from './history-checks';
 import { checkAttachments } from './attachment-checks';
+import { checkMemoryControls } from './memory-checks';
 
 addIcon('deepsidian-whale',WHALE_ICON);
 const start=Date.UTC(2026,8,13,2,0,0);
@@ -32,9 +33,12 @@ const chat:Chat={id:'00000000-0000-4000-8000-000000000001',title:'理解 KV cach
 const screen=new URLSearchParams(location.search).get('screen') ?? 'chat';
 let memoryEntries=[{id:'preview',text:'熟悉前端，首次出现的 agent 术语需要简短解释。',source:'合成预览记录',createdAt:'2026-09-13'}];
 let memoryRules='# 整理规则\n仅保存用户明确表达的持久偏好。';
+let previewUndoAvailable=true;
 const plugin:any={
  memoryDrafts:new Map(),
  async setChatMemory(id:string,change:any){Object.assign(this.state.chats.find((c:Chat)=>c.id===id),change);},
+ async setChatMemoryStart(id:string,mode:'now'|'all'){const current=this.state.chats.find((c:Chat)=>c.id===id);current.memoryStart=mode==='now'?{index:current.messages.length,key:'synthetic-preview'}:undefined;current.memoryPolicyVersion=(current.memoryPolicyVersion??0)+1;},
+ memoryContributionPreview(id:string){const current=this.state.chats.find((c:Chat)=>c.id===id);const start=current.memoryStart?.index??0;return {start,sources:current.messages.flatMap((m:any,index:number)=>index>=start && m.role==='user'?[{index,text:m.text,key:`preview-${index}`}]:[]).slice(-20)};},
  openOrganizer(){new OrganizerModal(this).open();},
  async extractMemory(){return {chatId:chat.id,title:chat.title,snapshot:await this.memory().snapshot(),sources:[{key:'demo',index:0,text:'请使用前端例子；技术词首次出现时请解释。'}],proposals:[{kind:'edit',id:'preview',text:'熟悉前端；技术词首次出现时配简短解释和一个前端例子。',reason:'用户明确的解释偏好，建议补充已有条目。',evidence:[{key:'demo',quote:'技术词首次出现时请解释'}]},{kind:'add',text:'解释复杂概念时偏好前端例子。',reason:'合成预览：用于展示多项提案勾选。',evidence:[{key:'demo',quote:'请使用前端例子'}]}]};},
  async applyMemoryProposals(){},
@@ -51,7 +55,7 @@ const plugin:any={
  connect:async()=>{throw Error('组件预览不启动 DSH，请在 Obsidian 中连接。');},disconnect:async()=>{},
  newChat(){this.state.chats.unshift({id:'new',title:'新对话',messages:[]});this.state.activeId='new';this.view.renderMessages();this.view.refreshChats();},
  ask:async()=>{},stopAnswer(){},
- memory(){return {snapshot:async()=>({vaultId:'preview-vault',entries:memoryEntries,rules:memoryRules,revision:'preview'}),update:async(_rev:string,c:any)=>{if(c.add)memoryEntries.push({id:String(Date.now()),text:c.add,source:'合成预览记录',createdAt:'2026-09-13'});if(c.remove)memoryEntries=memoryEntries.filter(e=>e.id!==c.remove);if(c.edit)memoryEntries=memoryEntries.map(e=>e.id===c.edit.id?{...e,text:c.edit.text}:e);if(c.rules!==undefined)memoryRules=c.rules;}};},
+ memory(){return {snapshot:async()=>({vaultId:'preview-vault',entries:memoryEntries,rules:memoryRules,revision:'preview'}),history:async()=>({revision:'preview',entries:[{id:'preview-delete',at:'2026-09-19 10:00',kind:'delete',summary:'删除 1 条记忆（合成预览）'}],canUndo:previewUndoAvailable,requiresRestoreConfirmation:previewUndoAvailable}),undo:async(_revision:string,options:any)=>{if(!options.restoreDeleted)throw Error('请确认恢复删除内容');previewUndoAvailable=false;},update:async(_rev:string,c:any)=>{if(c.add)memoryEntries.push({id:String(Date.now()),text:c.add,source:'合成预览记录',createdAt:'2026-09-13'});if(c.remove)memoryEntries=memoryEntries.filter(e=>e.id!==c.remove);if(c.edit)memoryEntries=memoryEntries.map(e=>e.id===c.edit.id?{...e,text:c.edit.text}:e);if(c.rules!==undefined)memoryRules=c.rules;}};},
  openMemory(tab:'entries'|'rules'='entries'){new MemoryModal(this,tab).open();},
  async runCommand(text:string){const c=parseCommand(text);if(c?.name==='memory')this.openMemory();else if(c?.name==='rules')this.openMemory('rules');else if(c?.name==='plan')return {question:c.args};else if(c?.name==='remember')await this.memory().update('preview',{add:c.args});return {};},
 };
@@ -59,6 +63,9 @@ const view=new LearningView({app:plugin.app,container:document.getElementById('a
 await view.onOpen();
 if(screen==='history-tests') await checkHistory(document.body.createDiv());
 if(screen==='attachment-tests')await checkAttachments(view,plugin,document.body.createDiv());
+if(screen==='memory-tests')await checkMemoryControls(plugin,document.body.createDiv());
+if(screen==='memory-session')new MemoryModal(plugin,'session').open();
+if(screen==='memory-maintenance'){const modal:any=new MemoryModal(plugin);modal.maintenanceOpen=true;modal.open();}
 if(screen==='trace') Array.from(document.querySelectorAll<HTMLButtonElement>('.ds-tabs button')).find(b=>b.textContent==='轨迹')?.click();
 if(screen==='setup') new SetupModal(plugin).open();
 if(screen==='organizer')new OrganizerModal(plugin).open();

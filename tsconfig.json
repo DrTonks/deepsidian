@@ -19,6 +19,8 @@
   "include": [
     "src/plugin/**/*.ts",
     "scripts/live.ts",
+    "scripts/live-memory.ts",
+    "scripts/eval-memory.ts",
     "scripts/doctor.ts"
   ]
 }

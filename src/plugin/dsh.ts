@@ -20,7 +20,7 @@ export function discover(packageRoot = '', nodePath = '', dshHome = '') {
   const node = candidates.nodes.find(p => existsSync(p));
   if (!node) throw Error('找不到 Node.js。请在设置中填写 Node 可执行文件路径。');
   const req = createRequire(join(root, 'package.json'));
-  const versions = Object.fromEntries(['dsh', 'dsh-sdk-minimal', 'dsh-sdk-jsonrpc-server', 'dsh-agent-loop', 'dsh-tools'].map(n => [n, JSON.parse(readFileSync(n === 'dsh' ? join(root, 'package.json') : req.resolve(`@deepseek-ai/${n}/package.json`), 'utf8')).version as string]));
+  const versions = Object.fromEntries(['dsh', 'dsh-sdk-minimal', 'dsh-sdk-jsonrpc-server', 'dsh-agent-loop', 'dsh-tools', 'dsh-llm-deepseek', 'dsh-session-persistence-jsonl'].map(n => [n, JSON.parse(readFileSync(n === 'dsh' ? join(root, 'package.json') : req.resolve(`@deepseek-ai/${n}/package.json`), 'utf8')).version as string]));
   return { root, node, home: dshHome || process.env.DSH_HOME || join(homedir(), '.dsh'), versions };
 }
 export function configuredModels(root: string, home: string): { choices: ModelChoice[]; selected: ModelChoice } {

@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {MemoryScheduler,newIdleMemory} from '../src/plugin/memory/scheduler.ts';
+import {memoryStartKey,extractionPrompt} from '../src/plugin/memory/proposals.ts';
 
 function fixture(){
   let time=Date.UTC(2026,8,16),state=newIdleMemory(),enabled=true,blocked=false,calls=0;
@@ -12,6 +13,11 @@ function fixture(){
   const clock=()=>time;const scheduler=new MemoryScheduler(host,clock);
   return {host,scheduler,chats,snapshot,clock,advance:(ms=300001)=>{time+=ms;},get state(){return state;},get calls(){return calls;},enable:(v:boolean)=>enabled=v,block:(v:boolean)=>blocked=v};
 }
+
+test('extraction instructions distinguish the real user from fictional or quoted preferences',()=>{
+  const f=fixture();const prompt=extractionPrompt(f.snapshot,[{key:'test',index:0,text:'这是虚构测试人物的持久偏好：我希望简短回答'}]);
+  assert.match(prompt,/证据必须明确描述用户本人/);assert.match(prompt,/第三人称、转述或引用、虚构人物、角色扮演、测试样例/);assert.match(prompt,/不确定归属时不生成提案/);
+});
 test('idle scheduler defaults to no dispatch until enabled, idle, and foreground is free',async()=>{
   const f=fixture();f.enable(false);f.advance();await f.scheduler.tick();assert.equal(f.calls,0);
   f.enable(true);f.block(true);await f.scheduler.tick();assert.equal(f.calls,0);
@@ -69,4 +75,17 @@ test('character budget and failed pending persistence cannot leak a dispatch or 
   const f=fixture();await f.host.save((s:any)=>{s.day='2026-09-16';s.chars=79999;});f.advance();await f.scheduler.tick();assert.equal(f.calls,0);assert.deepEqual(f.state.cursors,{});
   const g=fixture();const save=g.host.save;let writes=0;g.host.save=async(change)=>{if(++writes===2)throw Error('pending disk failure');return save(change);};g.advance();await g.scheduler.tick();
   assert.equal(g.calls,1);assert.equal(g.state.calls,1);assert.equal(g.state.pending,undefined);assert.deepEqual(g.state.cursors,{});assert.ok(g.state.retryAt>g.clock());
+});
+
+test('idle source floor survives restart and rejects changed anchors without rediscovering old history',async()=>{
+  const f=fixture(),chat=f.chats[0];chat.memoryStart={index:1,key:memoryStartKey(chat,1)};chat.memoryPolicyVersion=1;
+  chat.messages.push({role:'user',text:'新偏好'});f.advance();await f.scheduler.tick();
+  assert.deepEqual(f.state.pending!.batch.sources.map(s=>s.text),['新偏好']);assert.equal(f.state.pending!.batch.memoryPolicyVersion,1);
+  await f.host.save((s:any)=>{delete s.pending;delete s.cursors.a;});chat.messages[0].text='被编辑的旧偏好';
+  const restart=new MemoryScheduler(f.host,f.clock);f.advance();await restart.tick();assert.equal(f.calls,1);assert.equal(f.state.pending,undefined);assert.match(f.state.lastError!,/来源起点已失效/);
+});
+
+test('idle result is rejected if contribution range changes during generation',async()=>{
+  const f=fixture();f.host.run=async()=>{f.chats[0].memoryPolicyVersion=1;return '{"proposals":[]}';};f.advance();await f.scheduler.tick();
+  assert.equal(f.state.pending,undefined);assert.deepEqual(f.state.cursors,{});
 });

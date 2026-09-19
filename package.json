@@ -11,11 +11,13 @@
     "install:dev": "node scripts/install.mjs",
     "doctor": "node scripts/doctor.ts",
     "test": "node --test tests/core.test.ts tests/trace.test.ts tests/memory.test.ts tests/host.test.ts tests/discovery.test.ts tests/scheduler.test.ts",
-    "test:integration": "node --test tests/runtime.test.ts tests/web.test.ts",
+    "test:integration": "node --test tests/runtime.test.ts tests/web.test.ts tests/messages.test.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "live": "node scripts/live.ts",
     "preview": "node scripts/preview.mjs",
-    "package:source": "node scripts/package-source.mjs"
+    "package:source": "node scripts/package-source.mjs",
+    "live:memory": "node scripts/live-memory.ts",
+    "eval:memory": "node scripts/eval-memory.ts"
   },
   "devDependencies": {
     "@types/node": "22.20.2",

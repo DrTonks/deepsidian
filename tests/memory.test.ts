@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,readFile,writeFile,access,symlink,unlink} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {hostname} from 'node:os';
 import {MemoryStore,encodeEntries,decodeEntries} from '../src/plugin/memory/store.ts';
 import {parseCommand,commandMatches} from '../src/plugin/commands.ts';
 async function fixture(){await mkdir('.runs',{recursive:true});const root=await mkdtemp(resolve('.runs/memory-'));return {root,store:new MemoryStore(root)};}
@@ -151,6 +152,90 @@ test('proposal parser requires exact authorized evidence and enforces bounded op
   assert.throws(()=>extractionSources({...chat,contributeMemory:false}),/关闭/);
   const prompt=extractionPrompt(snapshot,sources);assert.doesNotMatch(prompt,/secret.md|不要提炼此回答/);
   assert.throws(()=>extractionPrompt(snapshot,[{...sources[0]!,text:'x'.repeat(40000)}]),/超过/);
+});
+
+test('journal survives restart, bounds retained text, and undo requires current revision',async()=>{
+  const {store,root}=await fixture();let snapshot=await store.snapshot();
+  assert.equal((await store.history()).canUndo,false);
+  await store.update(snapshot.revision,{add:'PRIVATE_OLD_VALUE'});snapshot=await store.snapshot();
+  await store.update(snapshot.revision,{edit:{id:snapshot.entries[0]!.id,text:'new value'}});
+  const history=await new MemoryStore(root).history();assert.equal(history.canUndo,true);assert.equal(history.entries[0]!.kind,'edit');
+  assert.match(await readFile(join(root,'journal.json'),'utf8'),/PRIVATE_OLD_VALUE/);
+  await assert.rejects(()=>store.undo(snapshot.revision),/改变/);
+  await store.undo(history.revision);assert.equal((await store.snapshot()).entries[0]!.text,'PRIVATE_OLD_VALUE');
+  assert.equal((await store.history()).canUndo,false);await assert.rejects(()=>store.undo((history.revision)),/改变/);
+  for(let i=0;i<14;i++){snapshot=await store.snapshot();await store.update(snapshot.revision,{rules:`rule ${i}`});}
+  assert.equal((await store.history()).entries.length,10);assert.ok(Buffer.byteLength(await readFile(join(root,'journal.json'),'utf8'))<=512*1024);
+  await store.undo((await store.history()).revision);assert.equal((await store.snapshot()).rules,'rule 12');
+});
+
+test('delete restoration is explicit; undo never revives excluded extraction sources',async()=>{
+  const {store}=await fixture();let s=await store.snapshot();const source='a'.repeat(64);
+  await store.update(s.revision,{batch:[{text:'remember me',source:'test',sourceKeys:[source]}]});s=await store.snapshot();
+  const id=s.entries[0]!.id;await store.update(s.revision,{remove:id});
+  let history=await store.history();assert.equal(history.requiresRestoreConfirmation,true);
+  await assert.rejects(()=>store.undo(history.revision),/明确确认/);
+  await store.undo(history.revision,{restoreDeleted:true});s=await store.snapshot();
+  assert.equal(s.entries[0]!.id,id);assert.ok(s.excludedSources!.includes(source));
+  await store.update(s.revision,{rules:'new rule'});history=await store.history();await store.undo(history.revision);
+  assert.ok((await store.snapshot()).excludedSources!.includes(source));
+  s=await store.snapshot();await assert.rejects(()=>store.update(s.revision,{batch:[{text:'re-extract',source:'test',sourceKeys:[source]}]}),/已遗忘/);
+});
+
+test('journal byte bound evicts old snapshots while retaining the latest undo',async()=>{
+  const {store,root}=await fixture();await store.snapshot();
+  const entries=Array.from({length:18},(_,i)=>({id:randomUUID(),text:`${i}`+'记'.repeat(1900),source:'test',createdAt:new Date().toISOString()}));
+  await writeFile(join(root,'topics/general.md'),encodeEntries(entries));
+  for(let i=0;i<7;i++){const s=await store.snapshot();await store.update(s.revision,{rules:`dense ${i}`});}
+  const history=await store.history();assert.ok(history.entries.length<7);assert.ok(history.canUndo);
+  assert.ok(Buffer.byteLength(await readFile(join(root,'journal.json'),'utf8'))<=512*1024);
+  await store.undo(history.revision);assert.equal((await store.snapshot()).rules,'dense 5');
+});
+
+test('undo of a proposal edit excludes only its newly introduced sources',async()=>{
+  const {store}=await fixture();let s=await store.snapshot();const oldSource='c'.repeat(64),newSource='d'.repeat(64);
+  await store.update(s.revision,{batch:[{text:'old preference',source:'old',sourceKeys:[oldSource]}]});s=await store.snapshot();const id=s.entries[0]!.id;
+  await store.update(s.revision,{batch:[{id,text:'new preference',source:'new',sourceKeys:[oldSource,newSource]}]});
+  await store.undo((await store.history()).revision);s=await store.snapshot();
+  assert.equal(s.entries[0]!.text,'old preference');assert.deepEqual(s.entries[0]!.sourceKeys,[oldSource]);
+  assert.ok(s.excludedSources!.includes(newSource));assert.ok(!s.excludedSources!.includes(oldSource));
+  await assert.rejects(()=>store.update(s.revision,{batch:[{id,text:'reappearing',source:'new',sourceKeys:[newSource]}]}),/已遗忘/);
+  await store.update(s.revision,{batch:[{id,text:'old evidence still usable',source:'old',sourceKeys:[oldSource]}]});
+});
+
+test('undo of a batch addition excludes its source and journal transaction recovers atomically',async()=>{
+  const {store,root}=await fixture();let s=await store.snapshot();const source='b'.repeat(64);
+  await store.update(s.revision,{batch:[{text:'batch',source:'test',sourceKeys:[source]}]});
+  await store.undo((await store.history()).revision);s=await store.snapshot();assert.equal(s.entries.length,0);assert.ok(s.excludedSources!.includes(source));
+  await store.update(s.revision,{add:'before interruption'});s=await store.snapshot();
+  const original=(store as any).recover.bind(store);let captured=false;
+  (store as any).recover=async()=>{if(await readFile(join(root,'transaction.json'),'utf8').catch(()=>null)){captured=true;throw Error('simulated interruption');}await original();};
+  await assert.rejects(()=>store.update(s.revision,{rules:'after interruption'}),/interruption/);assert.equal(captured,true);
+  const recovered=new MemoryStore(root);assert.equal((await recovered.snapshot()).rules,'after interruption');
+  const h=await recovered.history();assert.equal(h.entries[0]!.kind,'rules');await recovered.undo(h.revision);assert.equal((await recovered.snapshot()).rules,s.rules);
+});
+
+test('legacy memory without journal migrates lazily; external content edits block undo',async()=>{
+  const {store,root}=await fixture();let s=await store.snapshot();await store.update(s.revision,{add:'legacy'});
+  await unlink(join(root,'journal.json'));assert.equal((await store.history()).canUndo,false);
+  s=await store.snapshot();await store.update(s.revision,{rules:'rules'});const history=await store.history();
+  await writeFile(join(root,'RULES.md'),'external edit');assert.equal((await store.history()).canUndo,false);
+  await assert.rejects(()=>store.undo(history.revision),/改变/);assert.equal((await store.snapshot()).rules,'external edit');
+});
+
+test('dead same-host writer recovers; active, foreign, legacy and recovery-gate locks are refused',async()=>{
+  const {store,root}=await fixture();await store.snapshot();
+  let deadPid=2147483000;for(;deadPid>2147482000;deadPid--){try{process.kill(deadPid,0);}catch(e:any){if(e.code==='ESRCH')break;}}
+  assert.ok(deadPid>2147482000,'test needs a positively absent pid');
+  const lock=join(root,'writer.lock');const dead={host:hostname(),pid:deadPid,token:randomUUID()};
+  await writeFile(lock,JSON.stringify(dead));await new MemoryStore(root).snapshot();await assert.rejects(()=>access(lock));
+  for(const owner of [{...dead,pid:process.pid},{...dead,host:'another-host'},{pid:deadPid}]){
+    const raw=JSON.stringify(owner);await writeFile(lock,raw);await assert.rejects(()=>store.snapshot(),/writer.lock/);assert.equal(await readFile(lock,'utf8'),raw);await unlink(lock);
+  }
+  await writeFile(lock,JSON.stringify(dead));await writeFile(join(root,'writer.lock.guard'),'unknown recovery');
+  await assert.rejects(()=>store.snapshot(),/guard/);assert.equal(await readFile(lock,'utf8'),JSON.stringify(dead));await unlink(join(root,'writer.lock.guard'));
+  const results=await Promise.allSettled([new MemoryStore(root).snapshot(),new MemoryStore(root).snapshot()]);assert.ok(results.some(r=>r.status==='fulfilled'));
+  await assert.rejects(()=>access(lock));await assert.rejects(()=>access(join(root,'writer.lock.guard')));
 });
 
 test('proposal batches commit atomically, reject conflicts and retain excluded sources after deletion', async () => {

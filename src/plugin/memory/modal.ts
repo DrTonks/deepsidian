@@ -15,6 +15,9 @@ export class MemoryModal extends Modal {
   private committedText = '';
   private focusKey?: string;
   private maintenanceOpen = false;
+  private history?: Awaited<ReturnType<ReturnType<Deepsidian['memory']>['history']>>;
+  private confirmingUndo=false;
+  private confirmingRange=false;
   private drafts: Map<string,string>;
   private readonly chatId?: string;
   constructor(readonly plugin: Deepsidian, private tab: 'entries'|'rules'|'session' = 'entries') {
@@ -36,22 +39,23 @@ export class MemoryModal extends Modal {
   private async refresh() {
     if(this.busy) return;
     this.busy = true; this.render();
-    try { this.snapshot = await this.plugin.memory().snapshot(); this.error = ''; this.needsRefresh = false; }
+    try { this.snapshot = await this.plugin.memory().snapshot(); this.history=await this.plugin.memory().history(); this.confirmingUndo=false; this.error = ''; this.needsRefresh = false; }
     catch(error) { this.error = String(error); }
     finally { this.busy = false; this.render(); }
   }
-  private async action(fn: () => Promise<unknown>, saved?: {key:string;value:string}, removed?: string) {
+  private async action(fn: () => Promise<unknown>, saved?: {key:string;value:string}, removed?: string, success?:string) {
     if(this.busy || this.needsRefresh) return;
     this.busy = true; this.error = ''; this.saved = ''; this.render();
     let committed = false;
     try {
-      await fn(); committed = true; this.committedText = saved?.value ?? (removed ? '记忆已删除' : '索引已重建');
+      await fn(); committed = true; this.committedText = success ?? saved?.value ?? (removed ? '记忆已删除' : '索引已重建');
       if(saved && this.drafts.get(saved.key) === saved.value) this.drafts.delete(saved.key);
       if(removed) { this.drafts.delete(removed); this.selected = undefined; }
       if(saved?.key === 'add') this.selected = undefined;
       this.confirming = false;
       this.snapshot = await this.plugin.memory().snapshot();
-      this.saved = removed ? '已删除，下次提问起不再读取' : '已保存到本库';
+      this.history=await this.plugin.memory().history();this.confirmingUndo=false;
+      this.saved = success ?? (removed ? '已删除，下次提问起不再读取' : '已保存到本库');
     } catch(error) {
       this.needsRefresh = committed;
       this.error = committed ? `已保存，但读取最新内容失败：${String(error)}。请重新读取，不必重复提交。` : `${String(error)}。草稿已保留；若有版本冲突，请刷新并核对后再保存。`;
@@ -100,6 +104,19 @@ export class MemoryModal extends Modal {
     this.button(more,'刷新已保存内容',()=>void this.refresh());
     this.button(more,'重建本地索引',()=>void this.action(()=>this.plugin.memory().update(this.snapshot!.revision,{organize:true})));
     more.createEl('small',{text:'重建索引不调用模型，也不合并或提炼记忆。'});
+    more.createEl('h3',{text:'最近变更与撤销'});
+    more.createEl('p',{text:'本地变更日志包含旧记忆正文，最多保留10条、合计512KiB。删除记忆不是安全擦除；撤销不清除已遗忘来源的排除记录。撤销提案会排除此次撤回的新增来源，没有重做。'});
+    for(const entry of this.history?.entries??[])more.createEl('p',{text:`${entry.at} · ${entry.summary}`});
+    if(this.history?.canUndo){
+      const revision=this.history.revision;
+      if(this.history.requiresRestoreConfirmation && !this.confirmingUndo){
+        this.button(more,'撤销最近一次变更',()=>{this.confirmingUndo=true;this.render();});
+      }else{
+        if(this.history.requiresRestoreConfirmation)more.createEl('p',{text:'撤销会恢复已删除的记忆正文，使其再次可被读取。被遗忘的来源仍保持排除。确定恢复吗？'});
+        this.button(more,this.history.requiresRestoreConfirmation?'确认恢复已删除记忆':'撤销最近一次变更',()=>void this.action(()=>this.plugin.memory().undo(revision,{restoreDeleted:this.history!.requiresRestoreConfirmation}),undefined,undefined,'已撤销最近一次变更；下次提问生效'));
+        if(this.confirmingUndo)this.button(more,'取消恢复',()=>{this.confirmingUndo=false;this.render();});
+      }
+    }else more.createEl('small',{text:'当前没有可撤销的变更。'});
   }
   private renderSession(root: HTMLElement) {
     const chat=this.plugin.state.chats?.find(c=>c.id===this.chatId);
@@ -127,6 +144,23 @@ export class MemoryModal extends Modal {
     }
     const temporary=this.button(root,'关闭本会话的读取与贡献',()=>void set({useMemory:false,contributeMemory:false}));
     temporary.disabled=this.busy;
+    root.createEl('h3',{text:'可提炼的来源范围'});
+    try {const {start}=this.plugin.memoryContributionPreview(chat.id);root.createEl('p',{text:chat.memoryStart?`仅允许消息 ${start+1} 起的新用户消息；前 ${start} 条历史消息已排除。`:'允许提炼全部用户消息（仍排除已遗忘来源）。'});}
+    catch(error){root.createEl('p',{text:String(error)});}
+    root.createEl('p',{text:'“仅从现在起贡献”排除本会话已有消息，影响手动和闲时提炼，并使旧待审提案失效。它不会删除已保存的记忆或聊天，也不影响显式 /remember。'});
+    const setRange=async(mode:'now'|'all')=>{
+      if(this.busy)return;this.busy=true;this.error='';this.render();
+      try{await this.plugin.setChatMemoryStart(chat.id,mode);this.confirmingRange=false;this.saved='来源范围已保存，旧提案已失效';}
+      catch(error){this.error=String(error);}finally{this.busy=false;this.render();}
+    };
+    this.button(root,'仅从现在起贡献',()=>void setRange('now'));
+    if(chat.memoryStart){
+      if(this.confirmingRange){
+        root.createEl('p',{text:'恢复全部会允许旧用户消息再次参与手动和闲时提炼。已遗忘来源仍保持排除。确认恢复吗？'});
+        this.button(root,'确认恢复全部来源',()=>void setRange('all'));
+        this.button(root,'取消恢复来源',()=>{this.confirmingRange=false;this.render();});
+      }else this.button(root,'恢复全部来源…',()=>{this.confirmingRange=true;this.render();});
+    }
     root.createEl('p',{text:'这不是无痕聊天：聊天与 DSH 历史仍会保存；关闭读取不会擦除已经发送的内容。记忆管理页的直接编辑是独立的人工操作。'});
     if(!this.plugin.state.settings.useMemory)root.createEl('p',{text:'知识库总开关当前已关闭，所有会话均不读取长期记忆。'});
     root.createEl('p',{text:'回答进行中不能修改设置，请在回答结束后操作。'});
@@ -180,7 +214,7 @@ export class MemoryModal extends Modal {
   }
   private renderRules(root: HTMLElement) {
     const editor = root.createDiv('ds-memory-rules');
-    editor.createEl('p',{cls:'ds-memory-subtitle',text:'用于 /extract 手动模型提炼，保存后下次生成提案时生效。规则不进入普通对话，也不能绕过来源校验和人工确认。'});
+    editor.createEl('p',{cls:'ds-memory-subtitle',text:'用于手动与闲时模型提炼，保存后下次生成提案时生效。规则不进入普通对话，也不能绕过来源校验和人工确认。'});
     this.renderEditor(editor,'rules',this.snapshot!.rules,12000,'记忆整理规则');
   }
   private renderEditor(parent: HTMLElement, key: string, original: string, limit: number, label: string) {

@@ -33,7 +33,7 @@ test('native DSH web search returns citations; fetch blocks private destinations
   });
   server.listen(0,'127.0.0.1'); await once(server,'listening');
   const endpoint = `http://127.0.0.1:${(server.address() as any).port}`;
-  writeFileSync(join(home,'settings.yaml'),JSON.stringify({'llm-deepseek':{baseURL:endpoint},'web-search-deepseek':{baseURL:endpoint}}));
+  writeFileSync(join(home,'settings.yaml'),JSON.stringify({'llm-deepseek':{baseURL:endpoint,protocol:'chat-completions'},'web-search-deepseek':{baseURL:endpoint}}));
   const oldKey = process.env.DEEPSEEK_API_KEY; process.env.DEEPSEEK_API_KEY='synthetic-test-key';
   const client = new DshClient({packageRoot:env.root,nodePath:env.node,dshHome:home,runtimeHome:join(dir,'runtime'),bridgePath:resolve('src/plugin/bridge.mjs'),cwd:resolve('fixtures'),provider:'deepseek-official',model:'deepseek-chat',webSearch:true,webFetch:true}, async()=>({}),()=>{});
   try { assert.equal((await client.prompt(randomUUID(),'Test native web tools.')).kind,'completed'); assert.equal(searches,1); assert.equal(calls,3); assert.equal(fetchedPrivate,false); }

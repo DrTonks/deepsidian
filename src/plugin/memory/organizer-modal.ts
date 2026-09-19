@@ -46,7 +46,8 @@ export class OrganizerModal extends Modal {
     select.onchange=()=>{this.chatId=select.value;this.batch=undefined;this.committed=false;this.message='';this.render();};
     const chat=this.plugin.state.chats.find(c=>c.id===this.chatId);
     const sources=root.createEl('details');sources.createEl('summary',{text:'查看候选来源消息（生成时会排除已遗忘来源）'});
-    const preview=this.batch?.sources ?? chat?.messages.flatMap((m,index)=>m.role==='user'&&m.text.trim()?[{index,text:m.text}]:[]).slice(-20) ?? [];
+    let preview=this.batch?.sources??[];
+    if(!this.batch && chat && chat.contributeMemory!==false){try{preview=this.plugin.memoryContributionPreview(chat.id).sources;}catch(error){sources.createEl('p',{text:String(error)});}}
     if(chat && chat.contributeMemory!==false)for(const source of preview){sources.createEl('p',{text:`消息 ${source.index+1}`});sources.createEl('pre',{text:source.text,cls:'ds-proposal-text'});}
     if(!this.pending)this.button(root,this.batch?'重新生成提案':'生成提案',()=>void this.generate(),!!this.controller||this.saving||chat?.contributeMemory===false||!chat);
     if(this.controller)this.button(root,'取消整理',()=>{this.controller?.abort();});

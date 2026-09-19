@@ -221,9 +221,9 @@ test('M2 generates without writes, confirms selected changes, rejects stale or o
   const root=await mkdtemp(resolve('.runs/proposal-host-'));const store=new MemoryStore(join(root,'memory'));
   const p=new Deepsidian();p.state.chats=[{id:'a',title:'a',messages:[{role:'user',text:'请用前端例子'}]}];p.state.activeId='a';p.memory=()=>store;
   p.runMemoryModel=async(prompt:string)=>{const input=JSON.parse(prompt.split('\n').at(-1)!);return JSON.stringify({proposals:[{kind:'add',text:'偏好前端例子',reason:'明确要求',evidence:[{key:input.sources[0].key,quote:'前端例子'}]}]});};
-  const batch=await p.extractMemory('a',new AbortController().signal);assert.equal(p.busy,false);assert.equal((await store.snapshot()).entries.length,0);
+  let batch=await p.extractMemory('a',new AbortController().signal);assert.equal(p.busy,false);assert.equal((await store.snapshot()).entries.length,0);
   await p.setChatMemory('a',{contributeMemory:false});await assert.rejects(()=>p.applyMemoryProposals(batch,[0]),/关闭贡献/);
-  await p.setChatMemory('a',{contributeMemory:true});p.chat.messages[0].text='changed';await assert.rejects(()=>p.applyMemoryProposals(batch,[0]),/来源消息已改变/);p.chat.messages[0].text='请用前端例子';
+  await p.setChatMemory('a',{contributeMemory:true});await assert.rejects(()=>p.applyMemoryProposals(batch,[0]),/来源范围已改变/);batch=await p.extractMemory('a',new AbortController().signal);p.chat.messages[0].text='changed';await assert.rejects(()=>p.applyMemoryProposals(batch,[0]),/来源消息已改变/);p.chat.messages[0].text='请用前端例子';
   await assert.rejects(()=>p.applyMemoryProposals(batch,[]),/选择/);await p.applyMemoryProposals(batch,[0]);assert.equal((await store.snapshot()).entries[0].text,'偏好前端例子');
   await assert.rejects(()=>p.applyMemoryProposals(batch,[0]),/已改变/);
   const snap=await store.snapshot();await store.update(snap.revision,{remove:snap.entries[0].id});
@@ -297,4 +297,28 @@ test('discard cannot race a pending memory commit, and successful confirmation c
   store.update=async(...args:any[])=>{entered();await new Promise<void>(r=>release=r);return update(args[0],args[1]);};
   const saving=p.applyMemoryProposals(batch,[0],'pending');await started;await assert.rejects(()=>p.discardIdleMemory('pending'),/正在处理/);release();await saving;
   assert.equal(p.state.idleMemory.pending,undefined);assert.equal((await store.snapshot()).entries.length,1);assert.equal(p.busy,false);
+});
+
+test('source range excludes existing history, survives reload and invalidates old pending/manual batches',async()=>{
+  const {MemoryStore}=await import('../src/plugin/memory/store.ts');const root=await mkdtemp(resolve('.runs/range-host-'));const store=new MemoryStore(join(root,'memory'));
+  const p=new Deepsidian();p.state.chats=[{id:'a',title:'a',messages:[{role:'user',text:'旧偏好'}]}];p.state.activeId='a';p.memory=()=>store;
+  const seen:string[][]=[];p.runMemoryModel=async(prompt:string)=>{const sources=JSON.parse(prompt.split('\n').at(-1)!).sources;seen.push(sources.map((s:any)=>s.text));return JSON.stringify({proposals:[{kind:'add',text:sources[0].text,reason:'明确要求',evidence:[{key:sources[0].key,quote:sources[0].text}]}]});};
+  const old=await p.extractMemory('a',new AbortController().signal);
+  p.state.idleMemory={version:1,day:'',calls:0,chars:0,retryAt:0,cursors:{a:{index:0,key:old.sources[0].key}},pending:{id:'old',batch:old}};
+  let disk:any;p.saveData=async(value:any)=>{disk=structuredClone(value);};await p.setChatMemoryStart('a','now');
+  assert.equal(p.state.idleMemory.pending,undefined);assert.equal(p.state.idleMemory.cursors.a,undefined);assert.equal(disk.chats[0].memoryStart.index,1);
+  await assert.rejects(()=>p.applyMemoryProposals(old,[0]),/来源范围已改变/);await assert.rejects(()=>p.extractMemory('a',new AbortController().signal),/没有可提炼/);
+  p.state=structuredClone(disk);p.chat.messages.push({role:'user',text:'新偏好'});
+  const fresh=await p.extractMemory('a',new AbortController().signal);assert.deepEqual(seen.at(-1),['新偏好']);await p.applyMemoryProposals(fresh,[0]);
+  p.chat.messages[0].text='编辑旧消息';await assert.rejects(()=>p.extractMemory('a',new AbortController().signal),/起点已失效/);
+  await p.setChatMemoryStart('a','now');p.chat.messages.push({role:'user',text:'第三个偏好'});await p.extractMemory('a',new AbortController().signal);assert.deepEqual(seen.at(-1),['第三个偏好']);
+  await p.setChatMemoryStart('a','all');assert.equal(p.chat.memoryStart,undefined);
+  await assert.rejects(()=>p.applyMemoryProposals(old,[0]),/来源范围已改变/);
+});
+
+test('source range save failure does not change policy or discard pending work',async()=>{
+  const p=new Deepsidian();p.state.chats=[{id:'a',title:'a',messages:[{role:'user',text:'old'}]}];p.state.activeId='a';
+  p.state.idleMemory={version:1,day:'',calls:0,chars:0,retryAt:0,cursors:{},pending:{id:'old',batch:{chatId:'a'}}};
+  p.saveData=async()=>{throw Error('disk full');};await assert.rejects(()=>p.setChatMemoryStart('a','now'),/disk full/);
+  assert.equal(p.chat.memoryStart,undefined);assert.equal(p.chat.memoryPolicyVersion,undefined);assert.equal(p.state.idleMemory.pending.id,'old');assert.equal(p.busy,false);
 });
