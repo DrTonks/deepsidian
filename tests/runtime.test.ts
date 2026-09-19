@@ -159,6 +159,51 @@ test('real DSH memory search/read follows corrected and deleted snapshots across
   } finally {await client.stop();server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));oldUrl===undefined?delete process.env.DEEPSEEK_BASE_URL:process.env.DEEPSEEK_BASE_URL=oldUrl;oldKey===undefined?delete process.env.DEEPSEEK_API_KEY:process.env.DEEPSEEK_API_KEY=oldKey;}
 });
 
+test('real DSH memory management tool follows permission across process restarts', {timeout:60000},async()=>{
+  const env=discover();mkdirSync('.runs',{recursive:true});const dir=mkdtempSync(resolve('.runs','manage-bridge-'));
+  const home=join(dir,'config');mkdirSync(home);writeFileSync(join(home,'settings.yaml'),JSON.stringify({'llm-deepseek':{protocol:'chat-completions'}}));
+  const requests:{stage:number;names:string[];results:any[]}[]=[];
+  let stage=0;
+  const server=createServer(async(req,res)=>{
+    let body='';for await(const chunk of req)body+=chunk;
+    const input=JSON.parse(body);
+    const lastUser=input.messages.findLastIndex((m:any)=>m.role==='user');
+    const results=input.messages.slice(lastUser+1).filter((m:any)=>m.role==='tool');
+    requests.push({stage,names:(input.tools??[]).map((t:any)=>t.function.name),results});
+    res.writeHead(200,{'Content-Type':'text/event-stream'});
+    const emit=(delta:object,finish_reason:string|null=null)=>res.write(`data: ${JSON.stringify({id:'test',object:'chat.completion.chunk',created:0,model:'deepseek-chat',choices:[{index:0,delta,finish_reason}]})}\n\n`);
+    if(stage===1 && !results.length){
+      emit({tool_calls:[{index:0,id:'manage-call',type:'function',function:{name:'memory_manage',arguments:JSON.stringify({action:'add',text:'先定义再举例',quote:'请记住：先定义再举例。'})}}]});emit({},'tool_calls');
+    }else{emit({content:'DONE'});emit({},'stop');}
+    res.end('data: [DONE]\n\n');
+  });
+  server.listen(0,'127.0.0.1');await once(server,'listening');
+  const oldUrl=process.env.DEEPSEEK_BASE_URL,oldKey=process.env.DEEPSEEK_API_KEY;
+  process.env.DEEPSEEK_BASE_URL=`http://127.0.0.1:${(server.address() as any).port}`;process.env.DEEPSEEK_API_KEY='local-test-key';
+  const options={packageRoot:env.root,nodePath:env.node,dshHome:home,runtimeHome:join(dir,'runtime'),bridgePath:resolve('src/plugin/bridge.mjs'),cwd:dir,provider:'deepseek-official',model:'deepseek-chat'};
+  const dispatched:{name:string;args:Record<string,unknown>}[]=[];
+  let client:DshClient|undefined;
+  const session=randomUUID();
+  try{
+    for(const enabled of [false,true,false]){
+      client=new DshClient({...options,manageMemory:enabled},async(name,args)=>{dispatched.push({name,args});return {status:'committed',id:'synthetic-memory',revision:'synthetic-revision'};},()=>{});
+      assert.equal((await client.prompt(session,`Stage ${stage}: 请记住：先定义再举例。`)).kind,'completed');
+      await client.stop();stage++;
+    }
+    assert.deepEqual(requests.map(r=>r.stage),[0,1,1,2]);
+    for(const request of requests){
+      assert.equal(request.names.includes('memory_manage'),request.stage===1);
+      assert.ok(request.names.includes('memory_read'));assert.ok(request.names.includes('memory_search'));
+    }
+    assert.deepEqual(dispatched,[{name:'memory_manage',args:{action:'add',text:'先定义再举例',quote:'请记住：先定义再举例。'}}]);
+    assert.match(JSON.stringify(requests.find(r=>r.stage===1 && r.results.length)?.results),/synthetic-revision/);
+  }finally{
+    await client?.stop();server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));
+    oldUrl===undefined?delete process.env.DEEPSEEK_BASE_URL:process.env.DEEPSEEK_BASE_URL=oldUrl;
+    oldKey===undefined?delete process.env.DEEPSEEK_API_KEY:process.env.DEEPSEEK_API_KEY=oldKey;
+  }
+});
+
 test('real DSH memory organizer has no tools, isolates requests, and cancels without a result', {timeout:60000},async()=>{
   const {runOrganizer}=await import('../src/plugin/memory/organizer.ts');
   const env=discover();const dir=mkdtempSync(resolve('.runs','organizer-test-'));const home=join(dir,'config');mkdirSync(home);writeFileSync(join(home,'settings.yaml'),JSON.stringify({'llm-deepseek':{protocol:'chat-completions'}}));
@@ -176,7 +221,7 @@ test('real DSH memory organizer has no tools, isolates requests, and cancels wit
   server.listen(0,'127.0.0.1');await once(server,'listening');
   const oldUrl=process.env.DEEPSEEK_BASE_URL,oldKey=process.env.DEEPSEEK_API_KEY;
   process.env.DEEPSEEK_BASE_URL=`http://127.0.0.1:${(server.address() as any).port}`;process.env.DEEPSEEK_API_KEY='local-test-key';
-  const options={packageRoot:env.root,nodePath:env.node,dshHome:home,runtimeHome:join(dir,'runtime'),bridgePath:resolve('src/plugin/bridge.mjs'),cwd:resolve('fixtures'),provider:'deepseek-official',model:'deepseek-chat',webSearch:true,webFetch:true};
+  const options={packageRoot:env.root,nodePath:env.node,dshHome:home,runtimeHome:join(dir,'runtime'),bridgePath:resolve('src/plugin/bridge.mjs'),cwd:resolve('fixtures'),provider:'deepseek-official',model:'deepseek-chat',webSearch:true,webFetch:true,manageMemory:true};
   try {
     const early=new AbortController();early.abort();await assert.rejects(()=>runOrganizer(options,'test',early.signal));assert.equal(requests,0);
     const starting=new AbortController();const initializing=runOrganizer(options,'must not send',starting.signal);const stopped=assert.rejects(initializing);starting.abort();await stopped;assert.equal(requests,0);

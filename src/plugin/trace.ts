@@ -25,7 +25,7 @@ export function traceEntry(event: any): TraceEntry {
   return { type: event.type, at: Date.now(), turn: data.turn, step: data.step, usage, preview: (content || (event.type === 'tool/call' ? `${data.name} ${data.arguments}` : '')).slice(0, 500), callId: data.callId ?? message?.content?.[0]?.callId, detail: text.length > 24000 ? text.slice(0,24000) + '\n…界面快照已截断，完整内容见 DSH 会话日志。' : text };
 }
 export const eventLabels: Record<string, string> = {
-  'memory/snapshot': '本轮记忆索引', 'memory/read': '读取记忆正文', 'memory/search': '搜索本库记忆',
+  'memory/snapshot': '本轮记忆索引', 'memory/read': '读取记忆正文', 'memory/search': '搜索本库记忆', 'memory/manage':'AI管理记忆',
   'turn/start': '开始一轮对话', 'turn/end': '结束本轮', 'step/start': '开始模型调用', 'step/end': '完成一步',
   'system/message': '系统提示词', 'user/message': '发送给模型的上下文', 'assistant/message': '模型回答与用量',
   'assistant/attempt': '未提交的模型尝试', 'tool/call': '调用工具', 'tool/result': '工具返回',

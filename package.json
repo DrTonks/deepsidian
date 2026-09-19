@@ -10,14 +10,15 @@
     "build": "npm run typecheck && node scripts/build.mjs",
     "install:dev": "node scripts/install.mjs",
     "doctor": "node scripts/doctor.ts",
-    "test": "node --test tests/core.test.ts tests/trace.test.ts tests/memory.test.ts tests/host.test.ts tests/discovery.test.ts tests/scheduler.test.ts",
+    "test": "node --test tests/core.test.ts tests/trace.test.ts tests/memory.test.ts tests/manage.test.ts tests/host.test.ts tests/discovery.test.ts tests/scheduler.test.ts",
     "test:integration": "node --test tests/runtime.test.ts tests/web.test.ts tests/messages.test.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "live": "node scripts/live.ts",
     "preview": "node scripts/preview.mjs",
     "package:source": "node scripts/package-source.mjs",
     "live:memory": "node scripts/live-memory.ts",
-    "eval:memory": "node scripts/eval-memory.ts"
+    "eval:memory": "node scripts/eval-memory.ts",
+    "live:manage": "node scripts/live-manage.ts"
   },
   "devDependencies": {
     "@types/node": "22.20.2",
@@ -25,7 +26,7 @@
     "obsidian": "1.13.1",
     "typescript": "7.0.2"
   },
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "An Obsidian sidebar powered by a local DeepSeek Harness runtime.",
   "license": "MIT"
 }

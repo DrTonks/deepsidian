@@ -39,6 +39,7 @@ src/plugin/
   memory/
     store.ts                   本库文件存储、版本校验、写事务
     recall.ts                  每轮记忆快照、索引与只读检索
+    manage.ts                  默认关闭的前台AI管理，来源/权限/串行提交
     proposals.ts               来源标识、整理提示词、提案验证
     organizer.ts               隔离整理器进程与取消
     scheduler.ts               闲时判定、预算、游标、待审批次
@@ -67,7 +68,7 @@ sequenceDiagram
     C->>B: deepsidian/prompt
     B-->>C: deepsidian/tool
     C->>P: handleTool
-    P-->>B: 只读结果，经 RPC 返回
+    P-->>B: 工具结果，经 RPC 返回（写记忆需单独开启）
     B-->>C: stream + session.event
     C->>P: onRuntime / turn end
     P->>V: 更新回答、轨迹与状态
@@ -131,3 +132,5 @@ npm run preview
 
 继续深入：[架构与协作](ARCHITECTURE.md) · [记忆设计](MEMORY-DESIGN.md) · [路线与验收](RESEARCH-ROADMAP.md)。
 `npm run eval:memory` 提供12类付费合成提炼样例与逐例证据；读 [记忆评测与发布门槛](MEMORY-EVALUATION.md) 了解自动断言和语义复核的区别。
+
+记忆直接管理：src/plugin/memory/manage.ts 定义每轮授权、来源、预算和写入队列；main.ts创建/失效化manager，bridge.mjs按开关注册memory_manage。运行 npm run live:manage 做付费自然语言验收；与eval:memory的批量提炼测试不同。

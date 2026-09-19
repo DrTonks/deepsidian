@@ -126,10 +126,11 @@ export class MemoryStore {
     return values;
   }
   private revision(files: Record<string,string|null>) { return digest(JSON.stringify(files)); }
-  private async commit(before: Record<string,string|null>, after: Record<string,string>) {
+  private async commit(before: Record<string,string|null>, after: Record<string,string>, authorize?:()=>void) {
     if(this.revision(await this.files())!==this.revision(before)) throw Error('记忆文件已被修改，请刷新后重试');
     const transaction=JSON.stringify({version:1,before,after});
     if(Buffer.byteLength(transaction)>4_000_000 || Object.entries(after).some(([p,text])=>Buffer.byteLength(text)>(p==='journal.json'?JOURNAL_BYTES:1_000_000)))throw Error('记忆事务超过存储上限，未写入');
+    authorize?.(); // Atomic transaction publication begins here; no cancellation after this boundary.
     await this.atomic('transaction.json',transaction);
     await this.recover();
   }
@@ -197,7 +198,7 @@ export class MemoryStore {
   });}
   private index(entries:Entry[]) { return '# 记忆索引（自动生成，请通过管理页编辑正文）\n\n'+entries.slice(0,50).map(e=>`- ${e.id}：${e.text.replace(/\s+/g,' ').slice(0,90)}`).join('\n')+'\n'; }
   snapshot() { return this.run(async()=>{ const f=await this.initialized(); const state:State=JSON.parse(f['state.json']!);return {vaultId:state.vaultId,excludedSources:state.excludedSources??[],entries:decodeEntries(f['topics/general.md']!),rules:f['RULES.md']!,revision:this.revision(f)}; }); }
-  update(revision:string, change: {add?:string; source?:string; edit?:{id:string;text:string}; remove?:string; rules?:string; organize?:boolean; batch?:MemoryChange[]}) {
+  update(revision:string, change: {add?:string; source?:string; edit?:{id:string;text:string}; remove?:string; rules?:string; organize?:boolean; batch?:MemoryChange[]; actor?:'agent'}, authorize?:()=>void) {
     return this.run(async()=>{
       const f=await this.initialized(); if(this.revision(f)!==revision) throw Error('记忆已改变，请刷新后重试');
       const entries=decodeEntries(f['topics/general.md']!); const state:State=JSON.parse(f['state.json']!);
@@ -222,9 +223,11 @@ export class MemoryStore {
       // Local organization rebuilds the index only; it does not invent or merge facts.
       const body=encodeEntries(entries);if(Buffer.byteLength(body)>128*1024)throw Error('首版主题文件上限 128 KiB');
       const kind=change.remove?'delete':change.batch?'batch':change.edit?'edit':change.add!==undefined?'add':change.rules!==undefined?'rules':'organize';
-      const summary=({delete:'删除记忆',batch:`确认 ${change.batch?.length??0} 项记忆提案`,edit:'编辑记忆',add:'新增记忆',rules:'修改整理规则',organize:'重建记忆索引'} as Record<string,string>)[kind]!;
+      const summary=change.actor==='agent'?(change.remove?'AI遗忘记忆':change.batch?.some(e=>e.id)?'AI更正记忆':'AI新增记忆'):({delete:'删除记忆',batch:`确认 ${change.batch?.length??0} 项记忆提案`,edit:'编辑记忆',add:'新增记忆',rules:'修改整理规则',organize:'重建记忆索引'} as Record<string,string>)[kind]!;
       const after={'topics/general.md':body,'state.json':JSON.stringify(state),'RULES.md':change.rules??f['RULES.md']!,'MEMORY.md':this.index(entries)};
-      await this.commit(f,this.withJournal(f,after,kind,summary,!!change.remove));
+      const committed=this.withJournal(f,after,kind,summary,!!change.remove);
+      await this.commit(f,committed,authorize);
+      return {vaultId:state.vaultId,excludedSources:state.excludedSources??[],entries,rules:after['RULES.md'],revision:this.revision({...f,...committed})};
     });
   }
 }

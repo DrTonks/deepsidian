@@ -20,6 +20,7 @@
     "src/plugin/**/*.ts",
     "scripts/live.ts",
     "scripts/live-memory.ts",
+    "scripts/live-manage.ts",
     "scripts/eval-memory.ts",
     "scripts/doctor.ts"
   ]

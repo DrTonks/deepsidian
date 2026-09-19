@@ -9,6 +9,93 @@ const outfile=join(dir,'host.mjs');
 await build({stdin:{contents:"export {default} from './src/plugin/main.ts'; export {DshClient} from './src/plugin/dsh.ts'; export {FileSystemAdapter} from 'obsidian';",resolveDir:process.cwd()},outfile,bundle:true,platform:'node',format:'esm',alias:{obsidian:resolve('tests/host-obsidian.ts')}});
 const {default:Base,DshClient,FileSystemAdapter}=await import(pathToFileURL(outfile).href);
 class Deepsidian extends Base { constructor(){super();this.state.settings.useMemory=false;} }
+
+test('AI memory management defaults off; failed settings save rolls back and busy changes are rejected',async()=>{
+  const p=new Deepsidian();assert.equal(p.state.settings.manageMemory,false);
+  let stops=0;p.disconnect=async()=>{stops++;};p.saveData=async()=>{throw Error('disk full');};
+  await assert.rejects(()=>p.setManageMemory(true),/disk full/);
+  assert.equal(p.state.settings.manageMemory,false);assert.equal(p.busy,false);assert.equal(stops,1);
+  p.busy=true;await assert.rejects(()=>p.setManageMemory(true),/结束当前回答/);assert.equal(stops,1);
+  p.busy=false;let saved:any;p.saveData=async(value:any)=>{saved=structuredClone(value);};
+  await p.setManageMemory(true);assert.equal(p.state.settings.manageMemory,true);assert.equal(saved.settings.manageMemory,true);
+  await p.setManageMemory(false);assert.equal(p.state.settings.manageMemory,false);assert.equal(saved.settings.manageMemory,false);
+});
+
+test('foreground agent manages real memory, reads the updated snapshot, and cannot write outside its turn',async()=>{
+  const {MemoryStore}=await import('../src/plugin/memory/store.ts');
+  const {sourceKey}=await import('../src/plugin/memory/proposals.ts');
+  const store=new MemoryStore(join(await mkdtemp(resolve('.runs/manage-host-')),'memory'));
+  const p=new Deepsidian();p.state.settings.useMemory=true;p.state.settings.manageMemory=true;
+  p.state.chats=[{id:'synthetic',title:'synthetic',messages:[]}];p.state.activeId='synthetic';p.capture=()=>{};p.memory=()=>store;
+  let id='';let checked=false;const question='请记住，解释先给定义。';
+  p.connect=async()=>({options:{model:'test'},prompt:async(_id:string,prompt:string)=>{
+    assert.match(prompt,/本轮允许管理本库长期记忆/);
+    const result=await p.handleTool('memory_manage',{action:'add',text:'解释先给定义',quote:question});id=result.id;
+    assert.equal(result.status,'committed');assert.equal((await p.handleTool('memory_read',{id})).entry.text,'解释先给定义');
+    checked=true;return {kind:'completed'};
+  }});
+  await p.ask(question);assert.equal(checked,true);assert.equal(p.chat.messages.at(-1).status,'完成');
+  const saved=await store.snapshot();assert.equal(saved.entries[0]!.id,id);
+  assert.deepEqual(saved.entries[0]!.sourceKeys,[sourceKey('synthetic',0,question)]);
+  assert.ok(p.chat.messages.at(-1).trace.some((event:any)=>event.type==='memory/manage'));
+  await assert.rejects(()=>p.handleTool('memory_manage',{action:'remove',id,quote:question}),/没有活动/);
+});
+
+test('host rejects memory writes when management, reads, or chat contribution is disabled',async()=>{
+  const {MemoryStore}=await import('../src/plugin/memory/store.ts');
+  for(const disabled of ['management','reads','chat-reads','contribution']) {
+    const store=new MemoryStore(join(await mkdtemp(resolve('.runs/manage-disabled-')),'memory'));
+    const p=new Deepsidian();p.state.settings.useMemory=disabled!=='reads';p.state.settings.manageMemory=disabled!=='management';
+    p.state.chats=[{id:'synthetic',title:'synthetic',messages:[],useMemory:disabled!=='chat-reads',contributeMemory:disabled!=='contribution'}];
+    p.state.activeId='synthetic';p.capture=()=>{};p.memory=()=>store;let checked=false;
+    p.connect=async()=>({options:{model:'test'},prompt:async(_id:string,prompt:string)=>{
+      assert.match(prompt,/本轮不允许 AI 修改长期记忆/);
+      await assert.rejects(()=>p.handleTool('memory_manage',{action:'add',text:'先定义',quote:'请记住先定义'}),/未启用/);
+      checked=true;return {kind:'completed'};
+    }});
+    await p.ask('请记住先定义');assert.equal(checked,true,disabled);assert.equal((await store.snapshot()).entries.length,0);
+  }
+});
+
+test('host revalidates a current authorization message and cancellation at tool execution',async()=>{
+  const {MemoryStore}=await import('../src/plugin/memory/store.ts');
+  for(const revoke of ['cancel','message-edit','permission']) {
+    const store=new MemoryStore(join(await mkdtemp(resolve('.runs/manage-revoke-')),'memory'));
+    const p=new Deepsidian();p.state.settings.useMemory=true;p.state.settings.manageMemory=true;
+    p.state.chats=[{id:'synthetic',title:'synthetic',messages:[]}];p.state.activeId='synthetic';p.capture=()=>{};p.memory=()=>store;
+    let checked=false;
+    p.connect=async()=>({options:{model:'test'},prompt:async()=>{
+      if(revoke==='cancel')p.stopRequested=true;
+      if(revoke==='message-edit')p.chat.messages[0].text='changed';
+      if(revoke==='permission')p.state.settings.manageMemory=false;
+      await assert.rejects(()=>p.handleTool('memory_manage',{action:'add',text:'先定义',quote:'请记住先定义'}));
+      checked=true;return {kind:'completed'};
+    }});
+    await p.ask('请记住先定义');assert.equal(checked,true,revoke);assert.equal((await store.snapshot()).entries.length,0);
+  }
+});
+
+test('a delayed write from an earlier turn cannot borrow a new turn authorization',async()=>{
+  const {MemoryStore}=await import('../src/plugin/memory/store.ts');
+  const store=new MemoryStore(join(await mkdtemp(resolve('.runs/manage-old-turn-')),'memory'));
+  const p=new Deepsidian();p.state.settings.useMemory=true;p.state.settings.manageMemory=true;
+  p.state.chats=[{id:'synthetic',title:'synthetic',messages:[]}];p.state.activeId='synthetic';p.capture=()=>{};p.memory=()=>store;
+  const update=store.update.bind(store);let entered!:()=>void,release!:()=>void;
+  const waiting=new Promise<void>(r=>entered=r),gate=new Promise<void>(r=>release=r);
+  store.update=async(...args:Parameters<MemoryStore['update']>)=>{entered();await gate;return update(...args);};
+  let phase=0,rejected:Promise<void>|undefined,checked=false;
+  p.connect=async()=>({options:{model:'test'},prompt:async()=>{
+    if(phase++===0){
+      const delayed=p.handleTool('memory_manage',{action:'add',text:'旧轮记忆',quote:'请记住旧轮记忆'});
+      rejected=assert.rejects(delayed,/权限已关闭或请求已停止/);
+      await waiting;return {kind:'completed'};
+    }
+    assert.ok(p.activeManager);release();await rejected;checked=true;
+    return {kind:'completed'};
+  }});
+  await p.ask('请记住旧轮记忆');await p.ask('这是新一轮，请继续');
+  assert.equal(checked,true);assert.equal((await store.snapshot()).entries.length,0);
+});
 test('auto connection waits for layout, honors opt-out, and ignores late layout after unload',async()=>{
   const old=(globalThis as any).window;(globalThis as any).window={setInterval:()=>0};
   try {

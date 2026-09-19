@@ -19,6 +19,7 @@ import { SetupModal } from './setup';
 import { MemoryStore } from './memory/store';
 import { MemoryModal } from './memory/modal';
 import { prepareRecall, readRecall, MEMORY_DISABLED, type Recall } from './memory/recall';
+import { MemoryManager, MANAGEMENT_ENABLED, MANAGEMENT_DISABLED } from './memory/manage';
 import { commands, parseCommand } from './commands';
 import { extractionSources, extractionPrompt, parseProposals, sourceKey, memoryStartKey, memorySourceStart, type ProposalBatch } from './memory/proposals';
 import { runOrganizer } from './memory/organizer';
@@ -56,6 +57,15 @@ export default class Deepsidian extends Plugin {
   private activeRecall?: Recall;
   private organizerAbort?:AbortController;
   private memoryReadChars = 0;
+  private activeManager?:MemoryManager;
+  async setManageMemory(enabled:boolean) {
+    if(this.busy)throw Error('请先结束当前回答，再修改 AI 记忆管理权限');
+    this.busy=true;
+    try {
+      await this.disconnect();
+      await this.saveChange(draft=>{draft.settings.manageMemory=enabled;},()=>{this.state.settings.manageMemory=enabled;});
+    } finally {this.busy=false;this.view?.refreshStatus();}
+  }
   readonly memoryDrafts = new Map<string,string>();
   private autoAttempt?: Promise<void>;
   private retryAt = 0;
@@ -354,7 +364,7 @@ export default class Deepsidian extends Plugin {
     const base = this.app.vault.adapter.getBasePath();
     const directory = join(base, this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`);
     this.status = '正在连接本地 DSH…'; this.view?.refreshStatus();
-    this.client = new DshClient({ packageRoot: env.root, nodePath: env.node, dshHome: env.home, runtimeHome: join(directory, '.runtime'), bridgePath: join(directory, 'bridge.mjs'), cwd: base, ...env.model, reasoningEffort: this.state.settings.reasoningEffort, maxTokens: this.state.settings.maxTokens, webSearch: this.state.settings.webSearch, webFetch: this.state.settings.webFetch },
+    this.client = new DshClient({ packageRoot: env.root, nodePath: env.node, dshHome: env.home, runtimeHome: join(directory, '.runtime'), bridgePath: join(directory, 'bridge.mjs'), cwd: base, ...env.model, reasoningEffort: this.state.settings.reasoningEffort, maxTokens: this.state.settings.maxTokens, webSearch: this.state.settings.webSearch, webFetch: this.state.settings.webFetch, manageMemory:this.state.settings.manageMemory },
       (name, args) => this.handleTool(name, args), (method, data) => this.onRuntime(method, data));
     const client=this.client;
     try {await client.start(); if(this.disposed)throw Error('插件已关闭');}
@@ -418,14 +428,24 @@ export default class Deepsidian extends Plugin {
     if (prompt.length > 40000) { new Notice('本次上下文超过 40000 字符，请减少附件或选区。'); return; }
     const chat = this.chat!;
     this.busy = true; this.stopRequested = false; this.activeSource = source;
-    this.activeRecall = undefined; this.memoryReadChars = 0; this.view?.refreshStatus();
+    this.activeRecall = undefined; this.activeManager=undefined; this.memoryReadChars = 0; this.view?.refreshStatus();
     try {
       if(this.state.settings.useMemory && chat.useMemory!==false) this.activeRecall = prepareRecall(await this.memory().snapshot(), question);
+      if(this.state.settings.manageMemory && chat.contributeMemory!==false && this.activeRecall) {
+        const index=chat.messages.length;
+        const manager=new MemoryManager(this.memory(),this.activeRecall.snapshot,{chatId:chat.id,index,text:question},()=>{
+          if(this.activeManager!==manager||this.disposed||this.stopRequested||!this.busy||!this.activeMessage||this.chat!==chat||!this.state.settings.manageMemory||!this.state.settings.useMemory||chat.useMemory===false||chat.contributeMemory===false)
+            throw Error('本轮 AI 记忆管理权限已关闭或请求已停止');
+          if(chat.messages[index]?.role!=='user'||chat.messages[index]?.text!==question||memorySourceStart(chat)>index)throw Error('当前授权消息或来源范围已改变');
+        });
+        this.activeManager=manager;
+      }
       prompt += '\n\n' + (this.activeRecall?.prompt ?? MEMORY_DISABLED);
+      prompt += '\n\n' + (this.activeManager?MANAGEMENT_ENABLED:MANAGEMENT_DISABLED);
       if(prompt.length>40000) throw Error('包含记忆后上下文超过40000字符，请减少附件或选区');
       if(this.disposed || this.stopRequested) throw Error('已在发送前停止');
     } catch(error) {
-      this.busy=false; this.activeRecall=undefined; this.view?.refreshStatus();
+      this.busy=false; this.activeRecall=undefined; this.activeManager=undefined; this.view?.refreshStatus();
       new Notice(`未发送，草稿已保留：${String(error)}`); return;
     }
     accepted?.();
@@ -444,7 +464,7 @@ export default class Deepsidian extends Plugin {
       answer.status = reason.kind === 'completed' ? '完成' : reason.kind === 'aborted' ? '已停止' : `已结束：${reason.kind}`;
       if (!answer.text) answer.text = answer.status === '完成' ? '模型未返回可显示文本。可检查模型配置或再次提问。' : '本次回答已停止。';
     } catch (error) { answer.status = this.stopRequested ? '已停止' : '失败'; answer.text += `\n\n${String(error)}`; }
-    finally { this.lastUsed = Date.now(); answer.elapsedMs = Date.now() - answer.startedAt!; this.busy = false; this.activeMessage = undefined; this.activeRecall = undefined; try { await this.persist(); } catch { new Notice('无法保存聊天记录，请检查笔记库写入权限'); } this.view?.renderMessages(); this.view?.refreshStatus(); }
+    finally { this.lastUsed = Date.now(); answer.elapsedMs = Date.now() - answer.startedAt!; this.busy = false; this.activeMessage = undefined; this.activeRecall = undefined; this.activeManager=undefined; try { await this.persist(); } catch { new Notice('无法保存聊天记录，请检查笔记库写入权限'); } this.view?.renderMessages(); this.view?.refreshStatus(); }
   }
   stopAnswer() { this.stopRequested = true; this.organizerAbort?.abort(); this.client?.cancel(); this.view?.refreshStatus(); }
   async handleTool(name: string, args: Record<string, unknown>) {
@@ -459,6 +479,18 @@ export default class Deepsidian extends Plugin {
       this.memoryReadChars+=length;
       this.activeMessage.trace?.push(traceEntry({type:name==='memory_read'?'memory/read':'memory/search',data:result}));
       this.view?.scheduleAnswer();
+      return result;
+    }
+    if(name==='memory_manage') {
+      if(!this.activeManager)throw Error('本轮未启用 AI 记忆管理');
+      const manager=this.activeManager;
+      const result=await manager.execute(args);
+      if(this.activeManager===manager) {
+        this.activeRecall=prepareRecall(manager.snapshot,'');
+        this.activeMessage?.trace?.push(traceEntry({type:'memory/manage',data:{...result,quote:args.quote}}));
+        this.view?.scheduleAnswer();
+        new Notice('本库记忆已更新；可在 /memory 的维护页撤销最近操作');
+      }
       return result;
     }
     if (name === 'obsidian_context') return this.activeSource;
