@@ -32,14 +32,31 @@ export async function checkMemoryControls(plugin:any,root:HTMLElement){
 /** Preserve the keyboard user's position across asynchronous organizer redraws. */
 export async function checkOrganizerControls(plugin:any,root:HTMLElement){
   const report=root.createEl('pre');
-  const modal=new OrganizerModal(plugin);modal.open();
+  const originalExtract=plugin.extractMemory;
+  const batch=await originalExtract.call(plugin);
   const settle=async()=>{for(let i=0;i<20;i++)await Promise.resolve();};
+  const external=root.createEl('button',{text:'Outside organizer'});
+  let modal:OrganizerModal|undefined;
   try{
-    const sources=modal.contentEl.querySelector('details')!;sources.open=true;
-    const generate=modal.contentEl.querySelector<HTMLButtonElement>('[data-organizer-focus="generate"]')!;
-    generate.focus();generate.click();await settle();
-    if(modal.contentEl.ownerDocument.activeElement?.getAttribute('data-organizer-focus')!=='generate')throw Error('organizer generation lost keyboard focus');
-    if(!modal.contentEl.querySelector('details')?.open)throw Error('organizer generation collapsed reviewed sources');
-    report.append('PASS organizer preserves keyboard focus and expanded sources after generation');
-  }finally{modal.close();}
+    for(const navigation of ['none','inside','outside'] as const){
+      let complete!:(value:any)=>void;
+      plugin.extractMemory=()=>new Promise(resolve=>{complete=resolve;});
+      modal=new OrganizerModal(plugin);modal.open();
+      modal.contentEl.querySelector('details')!.open=true;
+      const generate=modal.contentEl.querySelector<HTMLButtonElement>('[data-organizer-focus="generate"]')!;
+      generate.focus();generate.click();
+      if(navigation==='inside'){
+        // Leave the temporary summary fallback and navigate back deliberately.
+        modal.contentEl.querySelector<HTMLButtonElement>('[data-organizer-focus="取消整理"]')!.focus();
+        modal.contentEl.querySelector<HTMLElement>('summary')!.focus();
+      }else if(navigation==='outside')external.focus();
+      complete(batch);await settle();
+      const active=modal.contentEl.ownerDocument.activeElement;
+      const expected=navigation==='inside'?'来源消息':'generate';
+      if(navigation==='outside'?active!==external:active?.getAttribute('data-organizer-focus')!==expected)throw Error(`organizer overrides ${navigation} focus after delayed generation`);
+      if(!modal.contentEl.querySelector('details')?.open)throw Error('organizer generation collapsed reviewed sources');
+      report.append(`PASS organizer delayed generation preserves ${navigation} navigation and expanded sources\n`);
+      modal.close();modal=undefined;
+    }
+  }finally{modal?.close();external.remove();plugin.extractMemory=originalExtract;}
 }

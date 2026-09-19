@@ -66,4 +66,4 @@ Web 工具由 DSH 原生插件注册和执行，不经 Obsidian handleTool。只
 
 `npm run package:source` 导出白名单源码到仓库外的 publish/deepsidian。目标必须不存在，不覆盖旧导出；可以传入新的输出目录。它排除运行日志、依赖、构建产物与个人资料。导出是交接快照，后续开发仍在原工作目录进行。上传前可再人工查看导出文件列表。
 
-0.6增加默认关闭的manageMemory设置：桥接按开关注册memory_manage；主进程按当前轮manager身份、读/贡献权限、逐字来源和revision重新验证。MemoryManager串行处理当前轮最多5次变更，store.update同锁返回提交快照供后续读取。整理器仍无工具。权限检查在WAL事务开始前完成，已开始的提交不随取消回滚。
+0.6增加manageMemory设置（0.6.1起新安装默认开启，保留已有关闭选择）：桥接按开关注册memory_manage；主进程按当前轮manager身份、读/贡献权限、逐字来源和revision重新验证。MemoryManager串行处理当前轮最多5次变更，store.update同锁返回提交快照供后续读取。整理器仍无工具。权限检查在WAL事务开始前完成，已开始的提交不随取消回滚。

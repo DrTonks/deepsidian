@@ -39,7 +39,7 @@ src/plugin/
   memory/
     store.ts                   本库文件存储、版本校验、写事务
     recall.ts                  每轮记忆快照、索引与只读检索
-    manage.ts                  默认关闭的前台AI管理，来源/权限/串行提交
+    manage.ts                  可选的前台AI管理，来源/权限/串行提交
     proposals.ts               来源标识、整理提示词、提案验证
     organizer.ts               隔离整理器进程与取消
     scheduler.ts               闲时判定、预算、游标、待审批次

@@ -12,10 +12,17 @@ export class OrganizerModal extends Modal {
   private message='';
   private committed=false;
   private focusKey?:string;
+  private restoringFocus=false;
+  // Ignore our temporary fallback, but honor later navigation inside or outside the modal.
+  private readonly trackFocus=(event:FocusEvent)=>{
+    if(this.restoringFocus)return;
+    const target=event.target as HTMLElement|null;
+    this.focusKey=target && this.contentEl.contains(target)?target.getAttribute('data-organizer-focus')??undefined:undefined;
+  };
   private sourcesOpen=false;
   constructor(readonly plugin:Deepsidian,private pending?:{id:string;batch:ProposalBatch}){super(plugin.app);this.chatId=pending?.batch.chatId??plugin.chat?.id??'';if(pending){this.batch=structuredClone(pending.batch);this.message='闲时提案已保存；请核对来源后选择要保存的项目。';}}
-  onOpen(){this.modalEl.addClass('ds-memory-dialog');this.contentEl.addClass('ds-memory-modal');this.render();}
-  onClose(){this.closed=true;this.controller?.abort();}
+  onOpen(){this.modalEl.addClass('ds-memory-dialog');this.contentEl.addClass('ds-memory-modal');this.contentEl.ownerDocument.addEventListener('focusin',this.trackFocus);this.render();}
+  onClose(){this.closed=true;this.contentEl.ownerDocument.removeEventListener('focusin',this.trackFocus);this.controller?.abort();}
   private button(parent:HTMLElement,label:string,action:()=>void,disabled=false){const button=parent.createEl('button',{text:label,attr:{type:'button'}});button.setAttribute('data-organizer-focus',label);button.disabled=disabled;button.onclick=action;return button;}
   private async generate(){
     if(this.controller || this.saving)return;
@@ -46,7 +53,9 @@ export class OrganizerModal extends Modal {
     this.draw();
     const controls=Array.from(this.contentEl.querySelectorAll<HTMLElement>('[data-organizer-focus]'));
     const target=controls.find(el=>el.getAttribute('data-organizer-focus')===this.focusKey && !(el as HTMLButtonElement).disabled);
-    if(this.focusKey)(target??controls.find(el=>!(el as HTMLButtonElement).disabled))?.focus({preventScroll:true});
+    this.restoringFocus=true;
+    try{if(this.focusKey)(target??controls.find(el=>!(el as HTMLButtonElement).disabled))?.focus({preventScroll:true});}
+    finally{this.restoringFocus=false;}
     if(!this.controller && !this.saving)this.focusKey=undefined;
   }
   private draw(){

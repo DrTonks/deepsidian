@@ -176,3 +176,17 @@
 
 .ds-memory-modal > select { max-width:100%; }
 .ds-memory-proposal { overflow-wrap:anywhere; }
+
+/* Settings use theme variables and a single card per section, not per row. */
+.ds-settings .ds-settings-section { margin: 18px 0; border: 1px solid var(--background-modifier-border); border-radius: 12px; overflow: hidden; }
+.ds-settings .ds-settings-section > summary { cursor: pointer; padding: 16px 18px; background: var(--background-secondary); }
+.ds-settings-title { font-size: var(--font-ui-medium, 15px); font-weight: var(--font-semibold, 600); }
+.ds-settings-summary { display: block; margin: 5px 0 0 17px; font-size: var(--font-ui-small); color: var(--text-muted); }
+.ds-settings .ds-settings-body { padding: 0 18px; }
+.ds-settings .ds-settings-body > .setting-item { margin: 0; padding: 16px 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.ds-settings .ds-settings-body > .setting-item + .setting-item { border-top: 1px solid var(--background-modifier-border); }
+.ds-settings .setting-item-control { flex-wrap: wrap; gap: 8px; }
+.ds-settings .ds-settings-help { color: var(--text-muted); font-size: var(--font-ui-small); padding: 0 0 12px; }
+.ds-settings .ds-settings-help summary { cursor: pointer; }
+.ds-settings summary:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: -3px; }
+@media (max-width: 600px) { .ds-settings .setting-item { align-items: flex-start; flex-direction: column; gap: 12px; } .ds-settings .setting-item-control { width: 100%; justify-content: flex-start; } }

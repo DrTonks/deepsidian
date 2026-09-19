@@ -1,3 +1,4 @@
+import {DeepsidianSettings} from '../../src/plugin/settings';
 import { TESTED_DSH } from '../../src/plugin/versions';
 import { LearningView } from '../../src/plugin/view';
 import { SetupModal } from '../../src/plugin/setup';
@@ -70,4 +71,17 @@ if(screen==='trace') Array.from(document.querySelectorAll<HTMLButtonElement>('.d
 if(screen==='setup') new SetupModal(plugin).open();
 if(screen==='organizer')new OrganizerModal(plugin).open();
 if(screen==='idle-organizer'){const pending={id:'synthetic-idle',batch:await plugin.extractMemory()};plugin.state.idleMemory={pending};new OrganizerModal(plugin,pending).open();}
+if(screen==='settings'){
+  const root=document.getElementById('app')!;root.empty();root.style.cssText='max-width:920px;padding:24px;overflow:auto';
+  plugin.idleScheduler={running:false,error:''};plugin.persist=async()=>{};
+  plugin.setManageMemory=async(value:boolean)=>{plugin.state.settings.manageMemory=value;};plugin.setIdleMemory=async(value:boolean)=>{plugin.state.settings.idleMemory=value;};
+  plugin.resolveEnvironment=()=>({versions:{dsh:TESTED_DSH},choices:[{provider:'deepseek-official',model:'deepseek-flash'}]});
+  const settings=new DeepsidianSettings(plugin);settings.containerEl=root;settings.display();
+  const sections=Array.from(root.querySelectorAll<HTMLDetailsElement>('.ds-settings-section'));
+  if(sections.length!==5||sections.map(s=>s.open).join()!=='true,true,true,false,false')throw Error('settings grouping/default disclosure failed');
+  sections[1]!.querySelector('summary')!.click();await new Promise(r=>setTimeout(r,0));settings.display();
+  if(root.querySelectorAll<HTMLDetailsElement>('.ds-settings-section')[1]!.open)throw Error('settings disclosure lost on rerender');
+  root.querySelectorAll<HTMLDetailsElement>('.ds-settings-section')[1]!.querySelector('summary')!.click();
+  document.body.dataset.settingsChecks='passed';
+}
 document.body.dataset.ready='true';

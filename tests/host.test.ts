@@ -10,8 +10,8 @@ await build({stdin:{contents:"export {default} from './src/plugin/main.ts'; expo
 const {default:Base,DshClient,FileSystemAdapter}=await import(pathToFileURL(outfile).href);
 class Deepsidian extends Base { constructor(){super();this.state.settings.useMemory=false;} }
 
-test('AI memory management defaults off; failed settings save rolls back and busy changes are rejected',async()=>{
-  const p=new Deepsidian();assert.equal(p.state.settings.manageMemory,false);
+test('AI memory settings preserve explicit opt-out; failed save rolls back and busy changes are rejected',async()=>{
+  const p=new Deepsidian();p.state.settings.manageMemory=false;assert.equal(p.state.settings.manageMemory,false);
   let stops=0;p.disconnect=async()=>{stops++;};p.saveData=async()=>{throw Error('disk full');};
   await assert.rejects(()=>p.setManageMemory(true),/disk full/);
   assert.equal(p.state.settings.manageMemory,false);assert.equal(p.busy,false);assert.equal(stops,1);
@@ -409,3 +409,9 @@ test('source range save failure does not change policy or discard pending work',
   p.saveData=async()=>{throw Error('disk full');};await assert.rejects(()=>p.setChatMemoryStart('a','now'),/disk full/);
   assert.equal(p.chat.memoryStart,undefined);assert.equal(p.chat.memoryPolicyVersion,undefined);assert.equal(p.state.idleMemory.pending.id,'old');assert.equal(p.busy,false);
 });
+
+ test('AI management defaults on for missing settings while saved true/false survive loading',async()=>{
+  const old=(globalThis as any).window;(globalThis as any).window={setInterval:()=>0};
+  try{for(const value of [undefined,false,true]){const p=new Deepsidian();p.saved={settings:{autoConnect:false,...(value===undefined?{}:{manageMemory:value})},chats:[{id:'a',title:'a',messages:[]}],activeId:'a'};await p.onload();assert.equal(p.state.settings.manageMemory,value??true);p.onunload();}}
+  finally{(globalThis as any).window=old;}
+ });
