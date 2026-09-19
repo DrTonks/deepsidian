@@ -184,7 +184,7 @@ npm run test:integration   # 需已安装 DSH；合成服务、无需 API key
 npm run preview            # 实际视图组件 + 模拟宿主，localhost:4173
 ```
 
-`npm run live` 会使用已配置的真实供应商发送合成样例并可能产生费用，不在默认测试或 CI 中运行。自动测试不读取个人笔记。
+`npm run live`、`live:memory`、`live:manage` 和 `eval:memory` 固定使用 DSH 的 `deepseek-official / deepseek-flash` 真实付费供应商，凭据由本机 DSH 配置读取。它们发送合成样例，验证聊天、工具、记忆管理与提炼效果，报告写入忽略提交的 `.runs/`。开发过程中已获授权使用此模型做真实测试；涉及模型、运行时、工具或提示词的改动应运行相关检查，并逐例阅读回答，不能仅以自动断言代替语义复核。它们不在默认测试或 CI 中运行，也不读取个人笔记。最近结果见 [真实供应商验证](docs/LIVE-VALIDATION.md) 和 [macOS 验证](docs/MACOS-VALIDATION.md)。
 
 代码按职责拆分：
 

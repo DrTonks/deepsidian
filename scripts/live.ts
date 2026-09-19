@@ -1,12 +1,12 @@
 import { resolve, join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { DshClient, discover, configuredModels } from '../src/plugin/dsh.ts';
+import { DshClient, discover } from '../src/plugin/dsh.ts';
 import { runOrganizer } from '../src/plugin/memory/organizer.ts';
 import { extractionPrompt, parseProposals, sourceKey } from '../src/plugin/memory/proposals.ts';
 import { DEFAULT_RULES } from '../src/plugin/memory/store.ts';
 const env = discover();
-const model = configuredModels(env.root, env.home).selected;
+const model = { provider: 'deepseek-official', model: 'deepseek-flash' };
 const output = resolve('.runs', `live-${new Date().toISOString().replaceAll(':', '-')}`);
 mkdirSync(output, { recursive: true });
 console.log({ versions: env.versions, model, credentials: '由 DSH 读取，不复制或输出' });

@@ -2,7 +2,7 @@
 import { readFile, writeFile, mkdir, mkdtemp, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { discover, configuredModels, assistantText } from '../src/plugin/dsh.ts';
+import { discover, assistantText } from '../src/plugin/dsh.ts';
 import { runOrganizer } from '../src/plugin/memory/organizer.ts';
 import { extractionPrompt, parseProposals, sourceKey, type Proposal } from '../src/plugin/memory/proposals.ts';
 import { DEFAULT_RULES, type MemorySnapshot } from '../src/plugin/memory/store.ts';
@@ -17,7 +17,7 @@ if(fixture.version!==1 || fixture.synthetic!==true || !Array.isArray(fixture.cas
   || new Set(fixture.cases.map(c=>c.id)).size!==12 || fixture.cases.some(c=>!/^[-a-z0-9]+$/.test(c.id)
     || !Array.isArray(c.messages)||!c.messages.length||c.messages.some(m=>typeof m!=='string')||!Array.isArray(c.entries)
     || !Number.isInteger(c.expect?.count)||c.expect.count<0||c.expect.count>12))throw Error('Synthetic evaluation fixture is invalid');
-const env=discover(),model=configuredModels(env.root,env.home).selected;
+const env=discover(),model={provider:'deepseek-official',model:'deepseek-flash'};
 await mkdir(resolve('.runs'),{recursive:true});
 const output=await mkdtemp(resolve('.runs','memory-eval-'));
 const reports:Record<string,unknown>[]=[];

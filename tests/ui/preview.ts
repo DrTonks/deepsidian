@@ -11,7 +11,7 @@ import {parseCommand} from '../../src/plugin/commands';
 import type { Chat } from '../../src/plugin/types';
 import { checkHistory } from './history-checks';
 import { checkAttachments } from './attachment-checks';
-import { checkMemoryControls } from './memory-checks';
+import { checkMemoryControls, checkOrganizerControls } from './memory-checks';
 
 addIcon('deepsidian-whale',WHALE_ICON);
 const start=Date.UTC(2026,8,13,2,0,0);
@@ -63,7 +63,7 @@ const view=new LearningView({app:plugin.app,container:document.getElementById('a
 await view.onOpen();
 if(screen==='history-tests') await checkHistory(document.body.createDiv());
 if(screen==='attachment-tests')await checkAttachments(view,plugin,document.body.createDiv());
-if(screen==='memory-tests')await checkMemoryControls(plugin,document.body.createDiv());
+if(screen==='memory-tests'){await checkMemoryControls(plugin,document.body.createDiv());await checkOrganizerControls(plugin,document.body.createDiv());}
 if(screen==='memory-session')new MemoryModal(plugin,'session').open();
 if(screen==='memory-maintenance'){const modal:any=new MemoryModal(plugin);modal.maintenanceOpen=true;modal.open();}
 if(screen==='trace') Array.from(document.querySelectorAll<HTMLButtonElement>('.ds-tabs button')).find(b=>b.textContent==='轨迹')?.click();

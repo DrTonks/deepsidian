@@ -144,8 +144,8 @@
 .ds-memory-tabs button[aria-pressed="true"] { color:var(--interactive-accent); border-bottom-color:var(--interactive-accent); }
 .ds-memory-feedback { min-height:26px; font-size:12px; padding:6px 0; color:var(--text-muted); }
 .ds-memory-feedback[role="alert"] { color:var(--text-error); }
-.ds-memory-toolbar { display:flex; gap:10px; margin:4px 0 14px; }
-.ds-memory-toolbar input { min-width:0; flex:1; }
+.ds-memory-toolbar { display:flex; flex-wrap:wrap; gap:10px; margin:4px 0 14px; }
+.ds-memory-toolbar input { min-width:120px; flex:1; }
 .ds-memory-layout { display:grid; grid-template-columns:minmax(160px, .8fr) minmax(0, 1.3fr); gap:20px; min-height:280px; }
 .ds-memory-list { max-height:360px; overflow:auto; padding-right:10px; border-right:1px solid var(--background-modifier-border); }
 .ds-memory-count { display:block; margin-bottom:8px; }
@@ -173,3 +173,6 @@
 .ds-memory-proposal label { display:flex; align-items:center; gap:8px; font-weight:600; margin-bottom:12px; }
 .ds-memory-proposal small { color:var(--text-muted); }
 .ds-proposal-text { white-space:pre-wrap; overflow-wrap:anywhere; max-height:220px; overflow:auto; padding:10px; background:var(--background-secondary); font-family:var(--font-text); }
+
+.ds-memory-modal > select { max-width:100%; }
+.ds-memory-proposal { overflow-wrap:anywhere; }

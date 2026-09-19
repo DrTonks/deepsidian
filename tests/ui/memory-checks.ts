@@ -1,3 +1,4 @@
+import {OrganizerModal} from '../../src/plugin/memory/organizer-modal';
 import {MemoryModal} from '../../src/plugin/memory/modal';
 
 /** Actual modal controls, synthetic persistence; backend contracts have host/store tests. */
@@ -26,4 +27,19 @@ export async function checkMemoryControls(plugin:any,root:HTMLElement){
     check(rangeCalls===2 && plugin.chat.memoryStart===undefined,'confirmed restore permits all non-forgotten sources');
     report.append('ALL 9 MEMORY CONTROL CHECKS PASSED');
   }finally{modal?.close();plugin.memory=originalMemory;plugin.setChatMemoryStart=originalRange;plugin.chat.memoryStart=originalStart;}
+}
+
+/** Preserve the keyboard user's position across asynchronous organizer redraws. */
+export async function checkOrganizerControls(plugin:any,root:HTMLElement){
+  const report=root.createEl('pre');
+  const modal=new OrganizerModal(plugin);modal.open();
+  const settle=async()=>{for(let i=0;i<20;i++)await Promise.resolve();};
+  try{
+    const sources=modal.contentEl.querySelector('details')!;sources.open=true;
+    const generate=modal.contentEl.querySelector<HTMLButtonElement>('[data-organizer-focus="generate"]')!;
+    generate.focus();generate.click();await settle();
+    if(modal.contentEl.ownerDocument.activeElement?.getAttribute('data-organizer-focus')!=='generate')throw Error('organizer generation lost keyboard focus');
+    if(!modal.contentEl.querySelector('details')?.open)throw Error('organizer generation collapsed reviewed sources');
+    report.append('PASS organizer preserves keyboard focus and expanded sources after generation');
+  }finally{modal.close();}
 }

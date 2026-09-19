@@ -3,11 +3,11 @@ import { resolve, join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
-import { DshClient, discover, configuredModels } from '../src/plugin/dsh.ts';
+import { DshClient, discover } from '../src/plugin/dsh.ts';
 import { MemoryStore } from '../src/plugin/memory/store.ts';
 import { prepareRecall, readRecall, type Recall } from '../src/plugin/memory/recall.ts';
 
-const env = discover(), model = configuredModels(env.root, env.home).selected;
+const env = discover(), model = { provider: 'deepseek-official', model: 'deepseek-flash' };
 const output = resolve('.runs', `live-memory-${new Date().toISOString().replaceAll(':', '-')}`);
 mkdirSync(output, {recursive:true});
 const memory = new MemoryStore(join(output, 'memory'));
