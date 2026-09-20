@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,symlink} from 'node:fs/promises';
 import {resolve} from 'node:path';
-import {catalogPath,assertCatalogPath,buildCatalog,CATALOG_LIMIT} from '../src/plugin/catalog-core.ts';
+import {catalogPath,assertCatalogPath,buildCatalog,CATALOG_LIMIT,navigationUpdate,readNavigation} from '../src/plugin/catalog-core.ts';
 
 test('catalog supports existing field aliases without guessing dates or changing originals',()=>{
   const articles=[
@@ -41,4 +41,24 @@ test('catalog containment verifies missing output and refuses directory junction
   catch(e:any){if(e.code==='EPERM'){t.skip('Windows does not allow test junction creation');return;}throw e;}
   await assert.rejects(assertCatalogPath(root,'linked/a.md'),/junction/);
   await assert.rejects(assertCatalogPath(root,'linked/new.base',true),/junction/);
+});
+
+
+test('managed navigation previews additions, removals and category/title changes while retaining user sections',()=>{
+  const before=buildCatalog([{path:'posts/a.md',frontmatter:{title:'Old',category:'学习'}},{path:'posts/deleted.md'}],'posts','out');
+  const after=buildCatalog([{path:'posts/a.md',frontmatter:{title:'New',categories:['开发']}},{path:'posts/added.md'}],'posts','out');
+  const update=navigationUpdate('手写前言\n'+before.navigation+'\n手写后记',after,'posts');
+  assert.equal(update.added[0].path,'posts/added.md');assert.equal(update.removed[0].path,'posts/deleted.md');
+  assert.equal(update.changed[0].before.category,'学习');assert.equal(update.changed[0].after.category,'开发');
+  assert.ok(update.text.startsWith('手写前言\n'));assert.ok(update.text.endsWith('\n手写后记'));
+  assert.equal(readNavigation(update.text).body,readNavigation(after.navigation).body);
+  assert.throws(()=>navigationUpdate(before.navigation.replace('## 学习','## 手写分类'),after,'posts'),/已被编辑/);
+  assert.throws(()=>navigationUpdate(before.navigation,after,'other'),/扫描范围/);
+  assert.throws(()=>navigationUpdate('# 旧版导航',after,'posts'),/旧版/);
+  assert.throws(()=>readNavigation(before.navigation+before.navigation),/唯一/);
+});
+
+test('category arrays and categories alias share the first-category navigation behavior',()=>{
+  const plan=buildCatalog([{path:'a.md',frontmatter:{category:['学习','开发']}},{path:'b.md',frontmatter:{categories:['学习','开发']}}],'','out');
+  assert.deepEqual(plan.entries.map(e=>e.category),['学习','学习']);assert.equal(plan.missing.category,0);
 });

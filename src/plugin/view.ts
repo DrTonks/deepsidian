@@ -88,6 +88,14 @@ export class LearningView extends ItemView {
       button.onclick = () => { this.mode = mode; for (const item of Array.from(tabs.children)) item.setAttribute('aria-pressed', String(item === button)); this.renderMessages(); };
     }
     this.messages = root.createDiv('ds-messages');
+    this.messages.addEventListener('click',event=>{
+      const link=(event.target as Element).closest?.('a.internal-link');
+      if(!link||!this.messages.contains(link))return;
+      const href=link.getAttribute('data-href')??link.getAttribute('href');if(!href)return;
+      event.preventDefault();event.stopPropagation();
+      const source=link.closest<HTMLElement>('.ds-message')?.dataset.sourcePath??'';
+      void this.plugin.openSource(href,source,event.metaKey||event.ctrlKey).catch(error=>new Notice(String(error)));
+    },true);
     this.toolsEl = root.createEl('details', { cls: 'ds-tools' });
     const composer = root.createDiv('ds-composer');
     this.contextEl = composer.createDiv('ds-context');
@@ -281,10 +289,13 @@ export class LearningView extends ItemView {
     if (this.mode === 'trace') { this.renderTrace(); return; }
     if (chat?.systemPrompt) { const system = this.messages.createEl('details', { cls: 'ds-system' }); system.createEl('summary', { text: '系统提示词 · DSH 实际组装结果' }); system.createEl('pre', { text: chat.systemPrompt }); }
     if (!chat?.messages.length) { const empty = this.messages.createDiv('ds-empty'); setIcon(empty.createDiv('ds-empty-icon'), 'deepsidian-whale'); empty.createEl('h2', { text: '今天想理解什么？' }); empty.createEl('p', { text: '结合当前笔记，逐步展开解释。' }); empty.createEl('small', { text: '选中术语带入上下文，或附上资料开始提问。' }); return; }
+    let sourcePath='';
     for (const message of chat.messages) {
+      if(message.role==='user')sourcePath=message.source?.path??'';
       const card = this.messages.createDiv(`ds-message ds-${message.role}`);
+      card.dataset.sourcePath=sourcePath;
       card.createDiv({ cls: 'ds-label', text: message.role === 'user' ? '你' : `Deepsidian${message.model ? ' · ' + message.model : ''}${message.status ? ' · ' + message.status : ''}` });
-      if (message.source?.path) card.createEl('button', { cls: 'ds-source', text: message.source.path }).onclick = () => { void this.plugin.app.workspace.openLinkText(message.source!.path, '', false); };
+      if (message.source?.path) card.createEl('button', { cls: 'ds-source', text: message.source.path }).onclick = () => { void this.plugin.openSource(message.source!.path).catch(error=>new Notice(String(error))); };
       if (message.attachments?.length) card.createDiv({ cls: 'ds-muted', text: '附件 · ' + message.attachments.join(' · ') });
       if (message.role === 'assistant') {
         const work = card.createEl('details', { cls: 'ds-work' });
@@ -296,10 +307,10 @@ export class LearningView extends ItemView {
         this.fillExecution(execution, message.trace ?? []);
         if (message === chat?.messages.at(-1)) { this.reasoningEl = reasoningBody; this.reasoningDetails = work; this.executionEl = execution; this.executionCount = message.trace?.length ?? 0; }
       }
-      const body = card.createDiv('ds-body');
+      const body = card.createDiv('ds-body');body.dataset.sourcePath=sourcePath;
       if (message.role === 'user') body.setText(message.text);
       else {
-        void MarkdownRenderer.render(this.app, message.text, body, message.source?.path ?? '', this.markdown);
+        void MarkdownRenderer.render(this.app, message.text, body, sourcePath, this.markdown);
         this.answerEl = body;
         card.createDiv({ cls: 'ds-usage ds-muted', text: usageSummary(message.trace ?? []) });
 
@@ -335,7 +346,7 @@ export class LearningView extends ItemView {
     if (!target || !message || this.closed) return;
     this.rendering = true;
     const follow = this.messages.scrollHeight - this.messages.scrollTop - this.messages.clientHeight < 90;
-    try { target.empty(); await MarkdownRenderer.render(this.app, message.text, target, '', this.markdown); if (follow) this.messages.scrollTop = this.messages.scrollHeight; }
+    try { target.empty(); await MarkdownRenderer.render(this.app, message.text, target, target.dataset.sourcePath??'', this.markdown); if (follow) this.messages.scrollTop = this.messages.scrollHeight; }
     finally { this.rendering = false; if (this.renderAgain) { this.renderAgain = false; this.scheduleAnswer(); } }
   }
   async onClose() { this.closed = true; this.focusCleanup?.(); this.history?.dispose(); clearTimeout(this.timer); this.plugin.detach(this); this.markdown.unload(); }

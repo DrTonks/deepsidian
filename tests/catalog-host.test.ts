@@ -17,7 +17,8 @@ async function fixture(){
   const folder=Object.assign(new TFolder(),{path:'posts'}),file={path:'posts/note.md',extension:'md'};
   const map=new Map<string,any>([['posts',folder],['posts/note.md',file]]),created:string[]=[];
   const adapter=Object.assign(new FileSystemAdapter(),{getBasePath:()=>root,exists:async(path:string)=>{try{await access(join(root,path));return true;}catch(e:any){if(e.code==='ENOENT')return false;throw e;}}});
-  const vault={adapter,getAbstractFileByPath:(path:string)=>map.get(path),getMarkdownFiles:()=>[file],createFolder:async(path:string)=>{await mkdir(join(root,path));map.set(path,Object.assign(new TFolder(),{path}));},create:async(path:string,text:string)=>{await writeFile(join(root,path),text,{flag:'wx'});created.push(path);map.set(path,{path});}};
+  const vault={adapter,getAbstractFileByPath:(path:string)=>map.get(path),getMarkdownFiles:()=>[file],createFolder:async(path:string)=>{await mkdir(join(root,path));map.set(path,Object.assign(new TFolder(),{path}));},create:async(path:string,text:string)=>{await writeFile(join(root,path),text,{flag:'wx'});created.push(path);map.set(path,{path,stat:{size:Buffer.byteLength(text)}});}};
+  Object.assign(vault,{getFileByPath:(path:string)=>map.get(path),read:(file:any)=>readFile(join(root,file.path),'utf8'),process:async(file:any,fn:(text:string)=>string)=>{const current=await readFile(join(root,file.path),'utf8');await writeFile(join(root,file.path),fn(current));}});
   const metadataCache={getFileCache:(_file:any)=>({frontmatter:{title:'原文章',tags:['agent']}})};
   // Only skip rendering; preview/create are the real production methods and use disk-backed Vault operations.
   const modal=Object.assign(Object.create(CatalogModal.prototype),{app:{vault,metadataCache},source:'posts',output:'_本地管理',busy:false,closed:false,message:'',render:()=>{}});
@@ -66,4 +67,27 @@ test('catalog refuses a junction inserted at output after preview',async(t)=>{
   catch(e:any){if(e.code==='EPERM'){t.skip('Host does not allow junction creation');return;}throw e;}
   await modal.create();assert.deepEqual(created,[]);assert.match(modal.message,/junction/);
   await assert.rejects(access(join(outside,'文章管理.base')));
+});
+
+
+test('catalog update preserves edited Base and user navigation sections, then refuses stale previews',async()=>{
+  const {root,modal,metadataCache}=await fixture();await modal.preview();await modal.create();
+  const nav=join(root,'_本地管理/文章导航.md'),base=join(root,'_本地管理/文章管理.base');
+  await writeFile(base,'custom Base settings');
+  await writeFile(nav,'个人前言\n'+await readFile(nav,'utf8')+'\n个人后记');
+  metadataCache.getFileCache=()=>({frontmatter:{title:'新标题',tags:['agent'],category:'开发'}} as any);
+  await modal.preview();assert.equal(modal.update.changed.length,1);await modal.create();
+  assert.equal(await readFile(base,'utf8'),'custom Base settings');
+  const result=await readFile(nav,'utf8');assert.ok(result.startsWith('个人前言'));assert.ok(result.endsWith('个人后记'));assert.match(result,/新标题/);
+  await modal.preview();await writeFile(nav,result+'\n预览后的修改');await modal.create();
+  assert.match(modal.message,/预览后导航已变更/);assert.equal(await readFile(nav,'utf8'),result+'\n预览后的修改');
+});
+
+test('catalog refuses user changes in its generated section and unsaved navigation edits',async()=>{
+  const {root,modal}=await fixture();await modal.preview();await modal.create();
+  const nav=join(root,'_本地管理/文章导航.md'),original=await readFile(nav,'utf8');
+  modal.app.workspace={getLeavesOfType:()=>[{view:{file:{path:'_本地管理/文章导航.md'},editor:{getValue:()=>original+'unsaved'}}}]};
+  await modal.preview();assert.equal(modal.plan,undefined);assert.match(modal.message,/未保存/);
+  modal.app.workspace=undefined;await writeFile(nav,original.replace('# 文章导航','# 手写导航'));
+  await modal.preview();assert.equal(modal.plan,undefined);assert.match(modal.message,/已被编辑/);
 });

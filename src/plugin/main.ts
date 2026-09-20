@@ -67,7 +67,21 @@ export default class Deepsidian extends Plugin {
   async knowledge(name:string,args:Record<string,unknown>,source=this.source.path){
     return new KnowledgeTools(this.app,path=>this.assertContained(path),file=>this.readCurrent(file)).handle(name,args,source);
   }
+  async openSource(link:string,source='',newLeaf=false){
+    const base=link.toLowerCase().endsWith('.base');
+    const resolved=await this.knowledge(base?'obsidian_base':'obsidian_resolve',base?{path:link}:{link,source},source) as {path:string;startLine?:number;endLine?:number};
+    const file=this.app.vault.getFileByPath(resolved.path);
+    if(!file)throw Error('来源已移动或删除，请重新定位');
+    const leaf=this.app.workspace.getLeaf(newLeaf?'tab':false);
+    await leaf.openFile(file,{eState:{line:Math.max(0,(resolved.startLine??1)-1)}});
+    if(leaf.view instanceof MarkdownView && resolved.startLine){
+      const from={line:resolved.startLine-1,ch:0};
+      leaf.view.editor.setCursor(from);leaf.view.editor.scrollIntoView({from,to:from},true);
+    }
+  }
   private async readCurrent(file:TFile){
+    const active=this.app.workspace.getActiveViewOfType(MarkdownView);
+    if(active?.file?.path===file.path)return active.editor.getValue();
     const open=this.app.workspace.getLeavesOfType('markdown').map(l=>l.view).find(v=>v instanceof MarkdownView&&v.file?.path===file.path) as MarkdownView|undefined;
     return open?open.editor.getValue():this.app.vault.read(file);
   }

@@ -22,8 +22,9 @@ export function linkedExcerpt(text: string, subpath: string, limit = 6000) {
     const f = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
     if(f) { if(!fence) fence=f[1]!; else if(f[1]![0]===fence[0] && f[1]!.length>=fence.length) fence=''; continue; }
     if(fence) continue;
-    const h=/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
-    if(h) headings.push({line:i,level:h[1]!.length,text:h[2]!});
+    const h=/^\s{0,3}(#{1,6})[ \t]+(.+?)\s*$/.exec(line);
+    // Closing markers require whitespace; the hash in a title such as C# is literal.
+    if(h) headings.push({line:i,level:h[1]!.length,text:h[2]!.replace(/[ \t]+#+$/, '').trim()});
     else if(i>0 && /^(={3,}|-{3,})\s*$/.test(line) && lines[i-1]!.trim()) headings.push({line:i-1,level:line.startsWith('=')?1:2,text:lines[i-1]!.trim()});
     const b=/(?:^|\s)\^([A-Za-z0-9-]+)\s*$/.exec(line); if(b) blocks.push({line:i,id:b[1]!});
   }
@@ -86,7 +87,7 @@ export class KnowledgeTools {
       const resolved=target?this.app.metadataCache.getFirstLinkpathDest(target,source):await this.file(source);
       if(!resolved)throw Error('链接目标不存在'); const file=await this.file(resolved.path);
       if(file.stat.size>1_000_000)throw Error('笔记超过 1MB');
-      return {path:file.path,subpath,...linkedExcerpt(await this.readText(file),subpath)};
+      return {path:file.path,subpath,resolvedFrom:source,notice:'按来源笔记解析链接；重名时采用 Obsidian 的解析结果，请核对返回路径。片段来自当前打开的编辑器或磁盘，不使用旧行号。',...linkedExcerpt(await this.readText(file),subpath)};
     }
     if(name==='obsidian_query') {
       const offset=integer(args.offset,0,Number.MAX_SAFE_INTEGER),limit=Math.max(1,integer(args.limit,20,20));
@@ -105,7 +106,7 @@ export class KnowledgeTools {
           if(size>resultBudget)budgetFull=true;else{results.push(row);resultBudget-=size;}
         }
       }
-      return {results,scanned,matchedInScan:matches,offset,nextOffset:offset+results.length<matches?offset+results.length:null,truncated:scanned<files.length||offset+results.length<matches,scanTruncated:scanned<files.length,limits:{scan:MAX_SCAN,page:20,propertiesPerFile:12,resultChars:18000},notice:'只查询元数据中的明确条件；query 匹配路径和标题，不搜索正文，不执行 Base 表达式。'};
+      return {results,scanned,matchedInScan:matches,offset,nextOffset:offset+results.length<matches?offset+results.length:null,truncated:scanned<files.length||offset+results.length<matches,scanTruncated:scanned<files.length,limits:{scan:MAX_SCAN,page:20,propertiesPerFile:12,resultChars:18000},notice:'属性来自 Obsidian 元数据缓存，刚修改后结果可能滞后，请等待索引刷新后重试；只查询明确条件；query 匹配路径和标题，不搜索正文，不执行 Base 表达式。'};
     }
     if(name==='obsidian_related') {
       const source=await this.file(args.path??sourcePath),sourceMeta=await this.meta(source),resolved=this.app.metadataCache.resolvedLinks;
@@ -126,4 +127,3 @@ export class KnowledgeTools {
     throw Error('未知知识库工具');
   }
 }
-

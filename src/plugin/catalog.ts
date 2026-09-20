@@ -1,12 +1,13 @@
 import { FileSystemAdapter, Modal, Notice, Setting, TFolder } from 'obsidian';
 import type Deepsidian from './main';
-import { assertCatalogPath, buildCatalog, catalogPath, CATALOG_LIMIT, type CatalogPlan } from './catalog-core';
+import { assertCatalogPath, buildCatalog, catalogPath, CATALOG_LIMIT, navigationUpdate, readNavigation, type CatalogPlan } from './catalog-core';
 
-/** Explicit preview-and-create workflow. Never edits or relocates the source articles. */
+/** Preview then create or update a verified generated region; source articles remain untouched. */
 export class CatalogModal extends Modal {
   private source:string;
   private output='_本地管理';
   private plan?:CatalogPlan;
+  private update?:ReturnType<typeof navigationUpdate> & {previous:string};
   private busy=false;
   private closed=false;
   private message='';
@@ -15,27 +16,32 @@ export class CatalogModal extends Modal {
   onOpen(){this.closed=false;this.render();}
   onClose(){this.closed=true;this.contentEl.empty();}
   private root(){const a=this.app.vault.adapter;if(!(a instanceof FileSystemAdapter))throw Error('目录整理仅支持桌面本地知识库');return a.getBasePath();}
-  private invalidate(){this.plan=undefined;this.message='路径已变更，请重新扫描并预览';this.previewEl?.empty();this.previewEl?.createEl('p',{text:this.message,attr:{role:'status'}});}
+  private invalidate(){this.plan=undefined;this.update=undefined;this.message='路径已变更，请重新扫描并预览';this.previewEl?.empty();this.previewEl?.createEl('p',{text:this.message,attr:{role:'status'}});}
   private render(){
     if(this.closed)return;
     const el=this.contentEl;el.empty();el.addClass('ds-catalog-modal');el.createEl('h2',{text:'整理文章目录'});
     el.createEl('p',{text:'生成 Obsidian Bases 表格和 Markdown 导航，不调用模型，不改动原文章。'});
     new Setting(el).setName('文章目录').setDesc('库内相对路径；留空代表整个知识库。').addText(t=>t.setValue(this.source).setPlaceholder('posts').setDisabled(this.busy).onChange(v=>{this.source=v;this.invalidate();}));
-    new Setting(el).setName('输出目录').setDesc('仅新建文章管理.base、文章导航.md；同名文件存在时停止。').addText(t=>t.setValue(this.output).setDisabled(this.busy).onChange(v=>{this.output=v;this.invalidate();}));
+    new Setting(el).setName('输出目录').setDesc('新目录创建两个文件；已有新版导航可预览差异后更新，保留 Base 和生成区外的编辑。').addText(t=>t.setValue(this.output).setDisabled(this.busy).onChange(v=>{this.output=v;this.invalidate();}));
     new Setting(el).addButton(b=>b.setButtonText(this.busy?'处理中…':'扫描并预览').setDisabled(this.busy).onClick(()=>void this.preview()));
     const preview=this.previewEl=el.createDiv();
     if(this.message)preview.createEl('p',{text:this.message,attr:{role:'status'}});
     if(this.plan){
       preview.createEl('p',{text:`共 ${this.plan.count} 篇。缺失属性：${Object.entries(this.plan.missing).map(([k,v])=>`${k} ${v}`).join(' · ')}。`});
       preview.createEl('p',{text:'兼容 title、category/categories、tags、date/pubDate、draft；草稿需为布尔值。属性类型不统一时请在原文中核对。只扫描 Markdown，隐藏路径与符号链接不参与；导航为静态快照，不推断发布日期。'});
-      for(const [title,body] of [['文章管理.base',this.plan.base],['文章导航.md',this.plan.navigation]]){
+      for(const [title,body] of [['文章管理.base',this.plan.base],['文章导航.md（生成区域）',readNavigation(this.plan.navigation).body]]){
         const details=preview.createEl('details');details.createEl('summary',{text:title});const pre=details.createEl('pre',{text:body.slice(0,12000)+(body.length>12000?'\n…预览已截断，生成文件保留全部内容':'')});pre.style.maxHeight='260px';pre.style.overflow='auto';pre.style.whiteSpace='pre-wrap';
       }
-      new Setting(preview).addButton(b=>b.setButtonText('确认新建两个文件').setCta().setDisabled(this.busy).onClick(()=>void this.create()));
+      if(this.update){
+        preview.createEl('p',{text:`新增 ${this.update.added.length} · 移除 ${this.update.removed.length} · 标题或分类变化 ${this.update.changed.length}。改名显示为移除旧路径、新增新路径。Base 保持不变；此处仅更新静态导航。`});
+        const changes=[...this.update.added.map(e=>`新增：${e.path}（${e.category}）`),...this.update.removed.map(e=>`移除：${e.path}`),...this.update.changed.map(e=>`变更：${e.after.path} · ${e.before.title} / ${e.before.category} → ${e.after.title} / ${e.after.category}`)];
+        preview.createEl('pre',{text:changes.slice(0,100).join('\n')+(changes.length>100?'\n…其余变化请查看完整导航预览':''),cls:'ds-proposal-text'});
+      }
+      new Setting(preview).addButton(b=>b.setButtonText(this.update?'确认更新导航':'确认新建两个文件').setCta().setDisabled(this.busy).onClick(()=>void this.create()));
     }
   }
   private async preview(){
-    if(this.busy)return;this.busy=true;this.plan=undefined;this.message='';this.render();
+    if(this.busy)return;this.busy=true;this.plan=undefined;this.update=undefined;this.message='';this.render();
     try {
       const source=catalogPath(this.source,true),output=catalogPath(this.output),root=this.root();
       if(source && !(this.app.vault.getAbstractFileByPath(source) instanceof TFolder))throw Error('文章目录不存在或不是文件夹');
@@ -49,15 +55,40 @@ export class CatalogModal extends Modal {
         if(!cached)throw Error('Obsidian 元数据索引尚未就绪，请稍后重试');
         rows.push({path:file.path,frontmatter:cached.frontmatter});
       }
-      this.plan=buildCatalog(rows,source,output);this.source=source;this.output=output;
+      const plan=buildCatalog(rows,source,output);
+      const navPath=`${output}/文章导航.md`,basePath=`${output}/文章管理.base`;
+      await assertCatalogPath(root,navPath,true);await assertCatalogPath(root,basePath,true);
+      const hasNav=await this.app.vault.adapter.exists(navPath),hasBase=await this.app.vault.adapter.exists(basePath);
+      if(hasNav||hasBase){
+        if(!hasNav||!hasBase)throw Error('输出目录只有部分管理文件，请保留检查并使用新目录');
+        const file=this.app.vault.getFileByPath(navPath);
+        if(!file)throw Error('导航文件索引尚未就绪，请稍后重试');
+        if(file.stat.size>4*1024*1024)throw Error('导航超过4MB，请使用新目录');
+        const previous=await this.app.vault.read(file);this.assertEditorUnchanged(navPath,previous);
+        this.update={previous,...navigationUpdate(previous,plan,source)};
+      }
+      this.plan=plan;this.source=source;this.output=output;
       this.message=`预览已准备；跳过 ${skipped} 个隐藏、不安全或不可读路径。生成视图会查询目录内文章，导航列出本次扫描结果。`;
     }catch(e){this.message=e instanceof Error?e.message:'扫描失败';}
     finally{this.busy=false;this.render();}
+  }
+  private assertEditorUnchanged(path:string,expected:string){
+    for(const leaf of this.app.workspace?.getLeavesOfType('markdown')??[]){
+      const view=leaf.view as any;
+      if(view.file?.path===path && view.editor && view.editor.getValue()!==expected)throw Error('导航有未保存编辑，请先保存再重新预览');
+    }
   }
   private async create(){
     if(this.busy||!this.plan)return;this.busy=true;const plan=this.plan;this.render();
     const created:string[]=[];
     try{
+      if(this.update){
+        const path=`${catalogPath(this.output)}/文章导航.md`;await assertCatalogPath(this.root(),path);
+        const file=this.app.vault.getFileByPath(path);if(!file)throw Error('导航已移动或删除，请重新预览');
+        const update=this.update;this.assertEditorUnchanged(path,update.previous);
+        await this.app.vault.process(file,current=>{if(current!==update.previous)throw Error('预览后导航已变更，请重新扫描；未覆盖任何编辑');return update.text;});
+        this.message='导航已更新；Base、原文章及生成区外的内容保持不变。';this.plan=undefined;this.update=undefined;new Notice('文章导航已更新');return;
+      }
       const output=catalogPath(this.output),root=this.root(),paths=[`${output}/文章管理.base`,`${output}/文章导航.md`];
       for(const path of paths){await assertCatalogPath(root,path,true);if(await this.app.vault.adapter.exists(path))throw Error(`${path} 已存在，请更换输出目录；不会覆盖`);}
       let folder='';for(const part of output.split('/')){folder=folder?`${folder}/${part}`:part;await assertCatalogPath(root,folder,true);const existing=this.app.vault.getAbstractFileByPath(folder);if(existing&&!(existing instanceof TFolder))throw Error(`${folder} 不是文件夹`);if(!existing)await this.app.vault.createFolder(folder);}

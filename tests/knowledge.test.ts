@@ -68,3 +68,9 @@ test('a Base can be a link resolution source but cannot become a Markdown target
   assert.equal(result.content,'# Target\nbody');
   await assert.rejects(()=>tools.handle('obsidian_resolve',{link:'[[#Target]]'},'map.base'));
 });
+
+test('heading resolution preserves literal trailing hashes and strips only separated closing markers',()=>{
+  const text='# Languages\n## C#\nC sharp content\n## F# ###\nF sharp content\n## Next\nother';
+  assert.equal(linkedExcerpt(text,'C#').content,'## C#\nC sharp content');
+  assert.equal(linkedExcerpt(text,'F#').content,'## F# ###\nF sharp content');
+});

@@ -138,7 +138,7 @@ npm run preview
 ## 0.6.2 知识库助手入口
 
 - `src/plugin/knowledge.ts`：四个只读知识工具与新鲜正文的标题/普通段落块解析；依赖注入 App、路径验证、编辑器读取，方便无 Obsidian 测试。
-- `src/plugin/catalog-core.ts`：路径校验、Base YAML 与静态导航生成；`catalog.ts` 负责选择、预览与确认新建。禁止覆盖与目录重排。
+- `src/plugin/catalog-core.ts`：路径校验、Base YAML 与静态导航生成；`catalog.ts` 负责选择、预览与确认新建。0.6.3 允许校验生成记录后更新导航生成区，保留 Base 与手写前后文；拒绝冲突及无记录旧版导航，不重排原文章。
 - `src/plugin/sources-modal.ts`：只读来源预览与关联候选，选择后交给 view 的附件队列。
 - `main.ts` 冻结当前来源，管理笔记工具次数/字符预算与晚到结果；`bridge.mjs` 注册工具，`dsh.ts` 向模型说明如何使用。
 - 离线测试：`tests/knowledge.test.ts`、`tests/catalog.test.ts`、`tests/catalog-host.test.ts`、`tests/host.test.ts`。`npm run live:knowledge` 为真实官方付费合成测试，输出仅留 `.runs/`，不读取个人库；`npm run preview` 的 `?screen=context-tests` 验证来源界面。

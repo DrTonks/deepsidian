@@ -28,11 +28,13 @@ export class SourcesModal extends Modal {
         if(this.closed||serial!==generation)return;
         preview.empty();preview.createEl('p',{text:`${result.path}${result.startLine?` · 行 ${result.startLine}–${result.endLine}`:''}${(result.truncated||String(result.content??'').length>6000)?' · 片段已截断':''}`});
         const content=String(result.content??'').slice(0,6000);preview.createEl('pre',{text:content,cls:'ds-proposal-text'});
+        const open=preview.createEl('button',{text:'跳转原文'});
+        open.onclick=()=>{void this.plugin.openSource(result.path+(result.subpath?'#'+result.subpath:''),source.path).then(()=>this.close()).catch(error=>new Notice(String(error)));};
         const attach=preview.createEl('button',{text:'附加片段'});
         attach.onclick=()=>{try{this.plugin.attachSource(`${result.path}${result.startLine?`:${result.startLine}`:''}`,content);new Notice('已附加，可在发送前移除');attach.disabled=true;}catch(error){new Notice(String(error));}};
       }catch(error){if(!this.closed&&serial===generation){preview.empty();preview.createEl('p',{text:String(error)});}}
     };
-    button.onclick=()=>void resolve(input.value.trim());input.onkeydown=event=>{if(event.key==='Enter')void resolve(input.value.trim());};
+    button.onclick=()=>void resolve(input.value.trim());input.onkeydown=event=>{if(event.key==='Enter'&&!event.isComposing){event.preventDefault();void resolve(input.value.trim());}};
     if(this.link)void resolve(this.link);
     const related=this.contentEl.createDiv();related.createEl('h3',{text:'关联候选（未自动发送）'});
     if(source.path.toLowerCase().endsWith('.base')){related.createEl('p',{text:'当前是 Bases 配置。可在上方定位具体笔记；关联候选需要以 Markdown 笔记为起点。'});return;}

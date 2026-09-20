@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto';
 import { lstat, realpath } from 'node:fs/promises';
 import { relative, isAbsolute, join } from 'node:path';
 
 export const CATALOG_LIMIT = 2000;
 export interface CatalogArticle { path:string; frontmatter?:Record<string,unknown>; }
-export interface CatalogPlan { base:string; navigation:string; count:number; missing:Record<string,number>; }
+export interface CatalogEntry { path:string; title:string; category:string; }
+export interface CatalogPlan { base:string; navigation:string; count:number; missing:Record<string,number>; entries:CatalogEntry[]; }
 
 /** Refuse normalization surprises, hidden components, Windows aliases and streams. */
 export function catalogPath(input:string, allowRoot=false):string {
@@ -33,7 +35,7 @@ export async function assertCatalogPath(root:string,path:string,allowMissing=fal
   }
 }
 const text=(value:unknown):string=>typeof value==='string'?value.trim():typeof value==='number'?String(value):'';
-const category=(fm:Record<string,unknown>):string=>text(fm.category)||text(Array.isArray(fm.categories)?fm.categories[0]:fm.categories)||'未分类';
+const category=(fm:Record<string,unknown>):string=>text(Array.isArray(fm.category)?fm.category[0]:fm.category)||text(Array.isArray(fm.categories)?fm.categories[0]:fm.categories)||'未分类';
 const present=(v:unknown):boolean=>Array.isArray(v)?v.length>0:typeof v==='boolean'||typeof v==='number'||(typeof v==='string'&&!!v.trim())||v instanceof Date;
 const escapeLabel=(s:string)=>s.replace(/[\r\n]/g,' ').replace(/[\\\[\]`*_<>]/g,'\\$&');
 const yaml=(s:string)=>JSON.stringify(s);
@@ -69,5 +71,36 @@ export function buildCatalog(articles:CatalogArticle[],source:string,output:stri
     const ups=output.split('/').map(()=> '..').join('/');
     return `- [${escapeLabel(label)}](${ups}/${destination})`;
   }), '']),'## 属性检查','',...Object.entries(missing).map(([key,n])=>`- ${key}：${n} 篇缺失${key==='draft'?'或不是布尔值':''}`),'','未推断分类、发布日期或学习掌握程度；未修改原文章。',''].join('\n');
-  return {base,navigation,count:rows.length,missing};
+  const entries=rows.map(a=>({path:a.path,title:text(a.frontmatter?.title)||a.path.split('/').pop()!.replace(/\.md$/i,''),category:category(a.frontmatter??{})}));
+  return {base,navigation:managedNavigation(navigation,source,entries),count:rows.length,missing,entries};
+}
+
+const START='<!-- deepsidian-catalog:v1:';
+const END='<!-- /deepsidian-catalog -->';
+const digest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+function managedNavigation(body:string,source:string,entries:CatalogEntry[]):string {
+  const state={source,entries,hash:digest({source,entries,body})};
+  return `${START}${Buffer.from(JSON.stringify(state)).toString('base64')} -->\n${body}${END}\n`;
+}
+export function readNavigation(text:string) {
+  const start=text.indexOf(START),end=text.indexOf(END);
+  if(start<0||end<start||text.indexOf(START,start+1)>=0||text.indexOf(END,end+1)>=0)throw Error('导航缺少唯一的生成记录（旧版或手写文件），请保留原文件并选择新输出目录');
+  const headerEnd=text.indexOf(' -->\n',start);
+  if(headerEnd<0||headerEnd>end)throw Error('导航生成记录损坏，请保留原文件');
+  let state:{source:string;entries:CatalogEntry[];hash:string};
+  try {state=JSON.parse(Buffer.from(text.slice(start+START.length,headerEnd),'base64').toString('utf8'));}catch{throw Error('导航生成记录损坏，请保留原文件');}
+  const body=text.slice(headerEnd+5,end);
+  if(typeof state.source!=='string'||!Array.isArray(state.entries)||state.entries.length>CATALOG_LIMIT||state.hash!==digest({source:state.source,entries:state.entries,body}))throw Error('生成区域已被编辑或记录损坏；不会覆盖，请保留修改并使用新输出目录');
+  return {source:state.source,entries:state.entries,start,end:end+END.length,body};
+}
+export function navigationUpdate(previous:string,plan:CatalogPlan,source:string) {
+  const old=readNavigation(previous),next=readNavigation(plan.navigation);
+  if(old.source!==source)throw Error('扫描范围与已有导航不同，请使用新的输出目录');
+  const before=new Map(old.entries.map(e=>[e.path,e]));
+  const after=new Map(plan.entries.map(e=>[e.path,e]));
+  const added=plan.entries.filter(e=>!before.has(e.path));
+  const removed=old.entries.filter(e=>!after.has(e.path));
+  const changed=plan.entries.flatMap(e=>{const prev=before.get(e.path);return prev&&(prev.title!==e.title||prev.category!==e.category)?[{before:prev,after:e}]:[];});
+  const replacement=plan.navigation.slice(next.start,next.end);
+  return {text:previous.slice(0,old.start)+replacement+previous.slice(old.end),added,removed,changed};
 }

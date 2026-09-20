@@ -6,8 +6,8 @@ import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 await mkdir('.runs',{recursive:true});const dir=await mkdtemp(resolve('.runs/host-test-'));
 const outfile=join(dir,'host.mjs');
-await build({stdin:{contents:"export {default} from './src/plugin/main.ts'; export {DshClient} from './src/plugin/dsh.ts'; export {FileSystemAdapter} from 'obsidian';",resolveDir:process.cwd()},outfile,bundle:true,platform:'node',format:'esm',alias:{obsidian:resolve('tests/host-obsidian.ts')}});
-const {default:Base,DshClient,FileSystemAdapter}=await import(pathToFileURL(outfile).href);
+await build({stdin:{contents:"export {default} from './src/plugin/main.ts'; export {DshClient} from './src/plugin/dsh.ts'; export {FileSystemAdapter,MarkdownView} from 'obsidian';",resolveDir:process.cwd()},outfile,bundle:true,platform:'node',format:'esm',alias:{obsidian:resolve('tests/host-obsidian.ts')}});
+const {default:Base,DshClient,FileSystemAdapter,MarkdownView}=await import(pathToFileURL(outfile).href);
 class Deepsidian extends Base { constructor(){super();this.state.settings.useMemory=false;} }
 
 test('knowledge output respects per-result/turn budgets and cancelled or replaced turns',async()=>{
@@ -431,3 +431,17 @@ test('source range save failure does not change policy or discard pending work',
   try{for(const value of [undefined,false,true]){const p=new Deepsidian();p.saved={settings:{autoConnect:false,...(value===undefined?{}:{manageMemory:value})},chats:[{id:'a',title:'a',messages:[]}],activeId:'a'};await p.onload();assert.equal(p.state.settings.manageMemory,value??true);p.onunload();}}
   finally{(globalThis as any).window=old;}
  });
+
+
+test('source navigation resolves duplicate names in source context and reads unsaved headings before opening',async()=>{
+  const p=new Deepsidian(),files=[{path:'a/topic.md',basename:'topic',extension:'md',stat:{size:20}},{path:'b/topic.md',basename:'topic',extension:'md',stat:{size:20}},{path:'b/source.md',extension:'md',stat:{size:20}}];
+  const file=files[1];let opened:any,reads=0;
+  const active=Object.assign(new MarkdownView(),{file,editor:{getValue:()=> '# New heading\nunsaved contents',setCursor:()=>{},scrollIntoView:()=>{}}});
+  p.assertContained=async()=>{};
+  p.app={vault:{getAbstractFileByPath:(path:string)=>files.find(f=>f.path===path),getFileByPath:(path:string)=>files.find(f=>f.path===path),read:async()=>{reads++;return '# Old heading';}},workspace:{getActiveViewOfType:()=>active,getLeavesOfType:()=>[],getLeaf:()=>({view:active,openFile:async(f:any,state:any)=>{opened={file:f,state};}})},metadataCache:{getFirstLinkpathDest:(target:string,source:string)=>target==='topic'?files.find(f=>f.path===source.split('/')[0]+'/topic.md'):undefined}};
+  const result=await p.knowledge('obsidian_resolve',{link:'[[topic#New heading]]'},'b/source.md');
+  assert.equal(result.path,'b/topic.md');assert.match(result.content,/unsaved contents/);assert.equal(reads,0);
+  await p.openSource('topic#New heading','b/source.md');assert.equal(opened.file.path,'b/topic.md');assert.equal(opened.state.eState.line,0);
+  opened=undefined;await assert.rejects(()=>p.openSource('topic#Old heading','b/source.md'),/找不到标题/);assert.equal(opened,undefined);
+  await assert.rejects(()=>p.openSource('renamed','b/source.md'),/不存在/);assert.equal(opened,undefined);
+});

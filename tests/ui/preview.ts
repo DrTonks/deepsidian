@@ -50,6 +50,7 @@ const plugin:any={
  models:[{provider:'deepseek-official',model:'deepseek-flash',name:'DeepSeek-V41-Flash',inputModalities:['text','image'],reasoning:{efforts:[{id:'off',name:'关闭'},{id:'high',name:'High'},{id:'max',name:'Max'}]}}],
  busy:false,stopRequested:false,runtimeVersion:TESTED_DSH,status:'DeepSeek-V41-Flash · 按需连接',toolEvents:[],includeContext:true,
  source:{path:'学习笔记/注意力机制.md',selection:'自回归生成',nearby:'已记录 Query、Key、Value 与注意力公式。'},
+ async openSource(link:string,source:string){this.lastOpenedSource={link,source};},
  sourceSummary(){return this.view?.sourceSummary()??[];},
  attachSource(name:string,text:string){this.view.attachSource(name,text);},
  async knowledge(name:string,args:any){
@@ -100,6 +101,9 @@ if(screen==='context'||screen==='context-tests'){
     if(!detail)throw Error('composer attachment preview missing');
     detail.querySelector('summary')!.click();
     if(!detail.open||!detail.textContent?.includes('历史 token'))throw Error('composer attachment preview inaccessible');
+    findButton('跳转原文').click();await new Promise(r=>setTimeout(r,0));
+    if(plugin.lastOpenedSource?.link!=='学习笔记/推理优化.md')throw Error('source navigation failed');
+    document.body.createEl('p',{text:'ALL CONTEXT CHECKS PASSED: preview, missing link, related selection, attachment, source navigation'});
     document.body.dataset.contextChecks='passed';
   }
 }
