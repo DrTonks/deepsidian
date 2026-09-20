@@ -85,13 +85,16 @@ function managedNavigation(body:string,source:string,entries:CatalogEntry[]):str
 export function readNavigation(text:string) {
   const start=text.indexOf(START),end=text.indexOf(END);
   if(start<0||end<start||text.indexOf(START,start+1)>=0||text.indexOf(END,end+1)>=0)throw Error('导航缺少唯一的生成记录（旧版或手写文件），请保留原文件并选择新输出目录');
-  const headerEnd=text.indexOf(' -->\n',start);
-  if(headerEnd<0||headerEnd>end)throw Error('导航生成记录损坏，请保留原文件');
+  const header=/ -->\r?\n/.exec(text.slice(start));
+  const headerEnd=header?start+header.index:-1;
+  if(!header||headerEnd>end)throw Error('导航生成记录损坏，请保留原文件');
   let state:{source:string;entries:CatalogEntry[];hash:string};
   try {state=JSON.parse(Buffer.from(text.slice(start+START.length,headerEnd),'base64').toString('utf8'));}catch{throw Error('导航生成记录损坏，请保留原文件');}
-  const body=text.slice(headerEnd+5,end);
-  if(typeof state.source!=='string'||!Array.isArray(state.entries)||state.entries.length>CATALOG_LIMIT||state.hash!==digest({source:state.source,entries:state.entries,body}))throw Error('生成区域已被编辑或记录损坏；不会覆盖，请保留修改并使用新输出目录');
-  return {source:state.source,entries:state.entries,start,end:end+END.length,body};
+  const body=text.slice(headerEnd+header[0].length,end);
+  // Editors and Git may change line endings without changing the generated content.
+  const canonicalBody=body.replace(/\r\n/g,'\n');
+  if(typeof state.source!=='string'||!Array.isArray(state.entries)||state.entries.length>CATALOG_LIMIT||state.hash!==digest({source:state.source,entries:state.entries,body:canonicalBody}))throw Error('生成区域已被编辑或记录损坏；不会覆盖，请保留修改并使用新输出目录');
+  return {source:state.source,entries:state.entries,start,end:end+END.length,body,lineEnding:header[0].endsWith('\r\n')?'\r\n':'\n'};
 }
 export function navigationUpdate(previous:string,plan:CatalogPlan,source:string) {
   const old=readNavigation(previous),next=readNavigation(plan.navigation);
@@ -101,6 +104,6 @@ export function navigationUpdate(previous:string,plan:CatalogPlan,source:string)
   const added=plan.entries.filter(e=>!before.has(e.path));
   const removed=old.entries.filter(e=>!after.has(e.path));
   const changed=plan.entries.flatMap(e=>{const prev=before.get(e.path);return prev&&(prev.title!==e.title||prev.category!==e.category)?[{before:prev,after:e}]:[];});
-  const replacement=plan.navigation.slice(next.start,next.end);
+  const replacement=plan.navigation.slice(next.start,next.end).replace(/\r?\n/g,old.lineEnding);
   return {text:previous.slice(0,old.start)+replacement+previous.slice(old.end),added,removed,changed};
 }

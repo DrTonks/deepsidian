@@ -91,3 +91,21 @@ test('catalog refuses user changes in its generated section and unsaved navigati
   modal.app.workspace=undefined;await writeFile(nav,original.replace('# 文章导航','# 手写导航'));
   await modal.preview();assert.equal(modal.plan,undefined);assert.match(modal.message,/已被编辑/);
 });
+
+test('catalog rechecks unsaved edits after waiting for the Vault process callback',async()=>{
+  const {root,modal,vault,metadataCache}=await fixture();await modal.preview();await modal.create();
+  const nav=join(root,'_本地管理/文章导航.md'),original=await readFile(nav,'utf8');
+  let editorText=original;
+  modal.app.workspace={getLeavesOfType:()=>[{view:{file:{path:'_本地管理/文章导航.md'},editor:{getValue:()=>editorText}}}]};
+  metadataCache.getFileCache=()=>({frontmatter:{title:'新标题',tags:['agent']}});
+  await modal.preview();assert.ok(modal.update);
+  let entered!:()=>void,release!:()=>void;
+  const waiting=new Promise<void>(r=>entered=r),resume=new Promise<void>(r=>release=r);
+  const process=(vault as any).process;
+  (vault as any).process=async(file:any,fn:(text:string)=>string)=>{entered();await resume;return process(file,fn);};
+  const creating=modal.create();await waiting;
+  editorText=original+'\n另一个窗口的未保存编辑';release();await creating;
+  assert.match(modal.message,/未保存编辑/);
+  assert.equal(await readFile(nav,'utf8'),original);
+  assert.equal(editorText,original+'\n另一个窗口的未保存编辑');
+});

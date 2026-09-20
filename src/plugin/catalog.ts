@@ -86,7 +86,12 @@ export class CatalogModal extends Modal {
         const path=`${catalogPath(this.output)}/文章导航.md`;await assertCatalogPath(this.root(),path);
         const file=this.app.vault.getFileByPath(path);if(!file)throw Error('导航已移动或删除，请重新预览');
         const update=this.update;this.assertEditorUnchanged(path,update.previous);
-        await this.app.vault.process(file,current=>{if(current!==update.previous)throw Error('预览后导航已变更，请重新扫描；未覆盖任何编辑');return update.text;});
+        await this.app.vault.process(file,current=>{
+          if(current!==update.previous)throw Error('预览后导航已变更，请重新扫描；未覆盖任何编辑');
+          // process can wait for another Vault operation; recheck editors at commit time.
+          this.assertEditorUnchanged(path,update.previous);
+          return update.text;
+        });
         this.message='导航已更新；Base、原文章及生成区外的内容保持不变。';this.plan=undefined;this.update=undefined;new Notice('文章导航已更新');return;
       }
       const output=catalogPath(this.output),root=this.root(),paths=[`${output}/文章管理.base`,`${output}/文章导航.md`];

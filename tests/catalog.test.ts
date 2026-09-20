@@ -62,3 +62,20 @@ test('category arrays and categories alias share the first-category navigation b
   const plan=buildCatalog([{path:'a.md',frontmatter:{category:['学习','开发']}},{path:'b.md',frontmatter:{categories:['学习','开发']}}],'','out');
   assert.deepEqual(plan.entries.map(e=>e.category),['学习','学习']);assert.equal(plan.missing.category,0);
 });
+
+test('managed navigation accepts Windows line endings and preserves surrounding text exactly',()=>{
+  const before=buildCatalog([{path:'posts/a.md',frontmatter:{title:'原标题'}}],'posts','out');
+  const after=buildCatalog([{path:'posts/a.md',frontmatter:{title:'新标题'}}],'posts','out');
+  const crlf=before.navigation.replace(/\n/g,'\r\n');
+  assert.equal(readNavigation(crlf).source,'posts');
+  const prefix='个人前言\r\n\n',suffix='\r\n个人后记\n';
+  const update=navigationUpdate(prefix+crlf+suffix,after,'posts');
+  assert.equal(update.changed.length,1);
+  assert.ok(update.text.startsWith(prefix));assert.ok(update.text.endsWith(suffix));
+  const parsed=readNavigation(update.text);
+  assert.equal(parsed.body,readNavigation(after.navigation).body.replace(/\n/g,'\r\n'));
+  assert.equal(parsed.lineEnding,'\r\n');
+  assert.equal(update.text.slice(0,parsed.start),prefix);
+  assert.equal(update.text.slice(parsed.end),'\r\n'+suffix);
+  assert.throws(()=>readNavigation(crlf.replace('# 文章导航','# 人工改动')),/已被编辑/);
+});
