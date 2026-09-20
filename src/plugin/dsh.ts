@@ -69,6 +69,7 @@ export class DshClient {
   private active?: { id: string; resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> };
   private closed?: Promise<void>;
   private stopping = false;
+  private forking = false;
   private generation = 0;
   private starting?: Promise<void>;
   private bridgeReady?: { resolve: () => void; reject: (e: Error) => void };
@@ -164,9 +165,18 @@ export class DshClient {
     });
   }
   async models(): Promise<ModelChoice[]> { await this.start(); return this.request('deepsidian/models', {}); }
+  async fork(sessionId: string, childId: string, atSeq: number): Promise<void> {
+    await this.start();
+    if (this.active || this.forking) throw Error('请等待当前操作结束后分支');
+    this.forking = true;
+    try {
+      const result = await this.request('deepsidian/fork', { sessionId, childId, atSeq });
+      if (result?.sessionId !== childId || result?.atSeq !== atSeq) throw Error('分支响应与请求不一致');
+    } finally { this.forking = false; }
+  }
   async prompt(sessionId: string, text: string, images: PromptImage[] = []): Promise<any> {
     await this.start();
-    if (this.active) throw Error('请等待当前回答结束');
+    if (this.active || this.forking) throw Error('请等待当前操作结束');
     const result = new Promise((resolve, reject) => {
       const timer = setTimeout(() => { void this.stop(); this.finish(Error('本次请求超过 5 分钟，已停止。')); }, 300000);
       this.active = { id: sessionId, resolve, reject, timer };

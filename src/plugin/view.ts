@@ -269,10 +269,11 @@ export class LearningView extends ItemView {
   refreshStatus() {
     if (!this.statusEl) return;
     const update = this.plugin.state.updates;
-    this.statusEl.setText(this.plugin.creatingChat ? '正在保存新会话…' : this.plugin.busy ? this.plugin.stopRequested ? '正在停止当前回答…' : 'DSH 正在处理 · 可随时停止' : this.plugin.status);
+    this.statusEl.setText(this.plugin.creatingFork ? '正在保存分支…' : this.plugin.creatingChat ? '正在保存新会话…' : this.plugin.busy ? this.plugin.stopRequested ? '正在停止当前回答…' : 'DSH 正在处理 · 可随时停止' : this.plugin.status);
     if (update?.error) this.statusEl.createEl('span', { text: ' · 更新检查暂不可用' });
     if (update?.newest && this.plugin.runtimeVersion && compareVersions(update.newest, this.plugin.runtimeVersion) > 0) this.statusEl.createEl('span', { text: ` · 可更新 DSH ${update.newest}` });
-    this.sendButton.disabled = this.plugin.busy || this.changing; this.sendButton.hidden = this.plugin.busy; this.stopButton.hidden = !this.plugin.busy || this.plugin.creatingChat; for (const control of [this.modelSelect, this.effortSelect, this.tokenSelect]) if (control) control.disabled = this.plugin.busy || this.changing; this.stopButton.disabled = !this.plugin.busy || this.plugin.stopRequested || this.plugin.creatingChat; this.history?.refresh();
+    for (const button of this.messages.querySelectorAll<HTMLButtonElement>('button[data-ds-branch-available]')) button.disabled = this.plugin.busy || this.changing || button.dataset.dsBranchAvailable !== 'true';
+    this.sendButton.disabled = this.plugin.busy || this.changing; this.sendButton.hidden = this.plugin.busy; this.stopButton.hidden = !this.plugin.busy || this.plugin.creatingChat || this.plugin.creatingFork; for (const control of [this.modelSelect, this.effortSelect, this.tokenSelect]) if (control) control.disabled = this.plugin.busy || this.changing; this.stopButton.disabled = !this.plugin.busy || this.plugin.stopRequested || this.plugin.creatingChat || this.plugin.creatingFork; this.history?.refresh();
   }
   refreshTools() { if (!this.toolsEl) return; this.toolsEl.empty(); this.toolsEl.hidden = true; this.toolsEl.createEl('summary', { text: `运行记录（${this.plugin.toolEvents.length}）` }); this.toolsEl.createEl('pre', { text: this.plugin.toolEvents.join('\n') }); }
   renderMessages() {
@@ -287,10 +288,23 @@ export class LearningView extends ItemView {
       onboarding.createEl('button', { text: '开始设置', cls: 'mod-cta' }).onclick = () => new SetupModal(this.plugin, () => { this.renderModels(); this.renderMessages(); }).open();
     }
     if (this.mode === 'trace') { this.renderTrace(); return; }
+    if (chat?.fork) {
+      const origin = this.messages.createDiv('ds-branch-origin');
+      origin.createSpan({ text: `分支自：${chat.fork.parentTitle} · 第 ${Math.floor(chat.fork.messageIndex / 2) + 1} 次回答` });
+      const back = origin.createEl('button', { text: '返回原对话' });
+      back.dataset.dsBranchAvailable = String(this.plugin.state.chats.some(c => c.id === chat.fork!.parentId));
+      back.disabled = this.plugin.busy || this.changing || !this.plugin.state.chats.some(c => c.id === chat.fork!.parentId);
+      back.onclick = () => {
+        if (this.changing || this.plugin.busy) return;
+        this.changing = true;
+        void this.plugin.selectChat(chat.fork!.parentId).then(() => { this.refreshChats(); this.renderMessages(); })
+          .catch(error => new Notice(String(error))).finally(() => { this.changing = false; this.renderMessages(); this.refreshStatus(); });
+      };
+    }
     if (chat?.systemPrompt) { const system = this.messages.createEl('details', { cls: 'ds-system' }); system.createEl('summary', { text: '系统提示词 · DSH 实际组装结果' }); system.createEl('pre', { text: chat.systemPrompt }); }
     if (!chat?.messages.length) { const empty = this.messages.createDiv('ds-empty'); setIcon(empty.createDiv('ds-empty-icon'), 'deepsidian-whale'); empty.createEl('h2', { text: '今天想理解什么？' }); empty.createEl('p', { text: '结合当前笔记，逐步展开解释。' }); empty.createEl('small', { text: '选中术语带入上下文，或附上资料开始提问。' }); return; }
     let sourcePath='';
-    for (const message of chat.messages) {
+    for (const [messageIndex, message] of chat.messages.entries()) {
       if(message.role==='user')sourcePath=message.source?.path??'';
       const card = this.messages.createDiv(`ds-message ds-${message.role}`);
       card.dataset.sourcePath=sourcePath;
@@ -313,6 +327,18 @@ export class LearningView extends ItemView {
         void MarkdownRenderer.render(this.app, message.text, body, sourcePath, this.markdown);
         this.answerEl = body;
         card.createDiv({ cls: 'ds-usage ds-muted', text: usageSummary(message.trace ?? []) });
+        if (message.status === '完成') {
+          const actions = card.createDiv('ds-message-actions');
+          const available = Number.isSafeInteger(message.forkSeq) && message.forkSeq! >= 0;
+          const button = this.iconButton(actions, 'git-fork', available ? '分支到新聊天' : '此旧回答未记录分支位置，请从新回答创建分支', () => {
+            if (this.plugin.busy || this.changing) return;
+            this.changing = true;
+            void this.plugin.forkChat(messageIndex).catch(error => new Notice(`分支未创建：${String(error)}`))
+              .finally(() => { this.changing = false; this.renderMessages(); this.refreshStatus(); });
+          });
+          button.dataset.dsBranchAvailable = String(available);
+          button.disabled = !available || this.plugin.busy || this.changing;
+        }
 
       }
     }

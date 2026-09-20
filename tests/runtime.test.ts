@@ -15,11 +15,12 @@ test('real DSH bridge: tools, text stream, cancel, followup and process resume',
   let hold = false, resumeHistory = false;
   let expectedModel = 'deepseek-chat', expectedTokens = 4096;
   let sawImage = false;
+  let lastInput: any, endSeq = -1, requests = 0;
   let onHeld = () => {};
   const server = createServer(async (req,res) => {
     let body = ''; for await(const chunk of req) body += chunk;
     if (!req.url?.endsWith('/chat/completions')) { res.writeHead(404, {'Content-Type':'application/json'}); res.end('{"error":{"message":"Not supported"}}'); return; }
-    const input = JSON.parse(body);
+    const input = JSON.parse(body); lastInput = input; requests++;
     if (input.messages.some((m:any) => Array.isArray(m.content) && m.content.some((c:any) => c.type === 'image_url' && c.image_url.url.startsWith('data:image/')))) sawImage = true;
     assert.equal(input.model, expectedModel);
     assert.equal(input.max_tokens, expectedTokens);
@@ -40,6 +41,7 @@ test('real DSH bridge: tools, text stream, cancel, followup and process resume',
   const options = {packageRoot:env.root,nodePath:env.node,dshHome:home,runtimeHome:join(dir,'runtime'),bridgePath:resolve('src/plugin/bridge.mjs'),cwd:resolve('fixtures'),provider:'deepseek-official',model:'deepseek-chat'};
   let text = '', toolCalls = 0, reasoning = '', systemPrompt = false;
   const listener = (method:string,data:any) => {
+    if (method === 'session.event' && data.event.type === 'turn/end') endSeq = data.event.seq;
     if (method === 'session.event' && data.event.type === 'system/message') systemPrompt = true;
     if (method === 'session.event' && data.event.type === 'assistant/message') reasoning += reasoningText(data.event.data.stream);
     if(method === 'deepsidian.stream' && data.frame.chunk?.type === 'text-delta') { text += data.frame.chunk.text; if (data.frame.chunk.text === 'partial') onHeld(); }
@@ -70,6 +72,40 @@ test('real DSH bridge: tools, text stream, cancel, followup and process resume',
     client = new DshClient({...options, model: expectedModel, maxTokens: expectedTokens}, async () => ({text:'test context'}), listener);
     assert.equal((await client.prompt(id,'Continue after image restart.')).kind,'completed');
     assert.equal(sawImage, true, 'durable image must survive runtime restart');
+    const boundary = endSeq, child = randomUUID(), grandchild = randomUUID();
+    await client.prompt(id, 'PARENT-ONLY-LATER');
+    const beforeFork = requests;
+    await assert.rejects(client.fork(id, randomUUID(), boundary - 1), /完整|完成/);
+    await client.fork(id, child, boundary);
+    assert.equal(requests, beforeFork, 'fork must not call a model');
+    await assert.rejects(client.fork(id, child, boundary), /已存在/);
+    await client.stop();
+    client = new DshClient({...options, model: expectedModel, maxTokens: expectedTokens}, async () => ({text:'test context'}), listener);
+    sawImage = false;
+    await client.prompt(child, 'CHILD-ONLY-CONTINUATION');
+    assert.equal(sawImage, true, 'fork inherits durable image references across restart');
+    assert.match(JSON.stringify(lastInput), /FIRST-QUESTION/);
+    assert.doesNotMatch(JSON.stringify(lastInput), /PARENT-ONLY-LATER/);
+    await client.fork(child, grandchild, boundary);
+    await client.prompt(grandchild, 'GRANDCHILD-ONLY');
+    assert.doesNotMatch(JSON.stringify(lastInput), /CHILD-ONLY-CONTINUATION|PARENT-ONLY-LATER/);
+    await client.prompt(id, 'PARENT-CONTINUES');
+    assert.match(JSON.stringify(lastInput), /PARENT-ONLY-LATER/);
+    assert.doesNotMatch(JSON.stringify(lastInput), /CHILD-ONLY-CONTINUATION|GRANDCHILD-ONLY/);
+    await client.stop();
+    client = new DshClient({...options, model: expectedModel, maxTokens: expectedTokens}, async () => ({text:'test context'}), listener);
+    await client.prompt(child, 'CHILD-RESTART');
+    assert.match(JSON.stringify(lastInput), /CHILD-ONLY-CONTINUATION/);
+    assert.doesNotMatch(JSON.stringify(lastInput), /PARENT-CONTINUES|GRANDCHILD-ONLY/);
+    hold = true;
+    const childHeld = new Promise<void>(resolve => { onHeld = resolve; });
+    const childRunning = client.prompt(child, 'CHILD-CANCEL'); await childHeld;
+    await assert.rejects(client.fork(child, randomUUID(), boundary), /等待/);
+    client.cancel(); assert.equal((await childRunning).kind, 'aborted'); hold = false;
+    await client.prompt(id, 'PARENT-UNAFFECTED');
+    assert.doesNotMatch(JSON.stringify(lastInput), /CHILD-CANCEL/);
+
+
   } finally {
     await client.stop(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
     oldUrl === undefined ? delete process.env.DEEPSEEK_BASE_URL : process.env.DEEPSEEK_BASE_URL = oldUrl;

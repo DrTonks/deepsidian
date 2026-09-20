@@ -445,3 +445,47 @@ test('source navigation resolves duplicate names in source context and reads uns
   opened=undefined;await assert.rejects(()=>p.openSource('topic#Old heading','b/source.md'),/找不到标题/);assert.equal(opened,undefined);
   await assert.rejects(()=>p.openSource('renamed','b/source.md'),/不存在/);assert.equal(opened,undefined);
 });
+
+test('fork publishes only after runtime and host persistence succeed; inherited memory is excluded',async()=>{
+  const {memorySourceStart,contributionSources,memoryStartKey}=await import('../src/plugin/memory/proposals.ts');
+  const p=new Deepsidian();
+  const parent={id:'parent',title:'学习分支',goal:'理解概念',useMemory:false,contributeMemory:true,messages:[
+    {role:'user',text:'过去的问题',attachments:['image.png']},{role:'assistant',text:'过去的回答',status:'完成',forkSeq:17},
+    {role:'user',text:'后来的问题'},{role:'assistant',text:'后来的回答',status:'完成',forkSeq:29}]};
+  p.state.chats=[parent];p.state.activeId=parent.id;
+  let forks=0,saves=0;p.connect=async()=>({fork:async(source:string,child:string,atSeq:number)=>{
+    forks++;assert.equal(source,parent.id);assert.notEqual(child,parent.id);assert.equal(atSeq,17);
+    assert.equal(p.chat,parent);assert.equal(p.busy,true);
+  }});
+  p.saveData=async()=>{saves++;throw Error('disk full');};
+  await assert.rejects(p.forkChat(1),/disk full/);
+  assert.equal(p.chat,parent);assert.equal(p.state.chats.length,1);assert.equal(p.busy,false);
+  let saved:any;p.saveData=async(value:any)=>{saves++;saved=structuredClone(value);};
+  await p.forkChat(1);
+  const child=p.chat;assert.notEqual(child.id,parent.id);assert.equal(child.messages.length,2);
+  assert.equal(child.goal,parent.goal);assert.equal(child.useMemory,false);assert.equal(child.fork.parentId,parent.id);
+  assert.equal(saved.activeId,child.id);assert.equal(forks,2);assert.equal(saves,2);
+  assert.equal(memorySourceStart(child),2);assert.deepEqual(contributionSources(child),[]);
+  child.memoryStart={index:0,key:memoryStartKey(child,0)};assert.equal(memorySourceStart(child),2);
+  child.messages.push({role:'user',text:'新的问题'});assert.equal(contributionSources(child).length,1);
+  child.messages[0].attachments.push('another.png');assert.deepEqual(parent.messages[0].attachments,['image.png']);
+  child.messages[0].text='modified';assert.throws(()=>contributionSources(child),/继承记录已改变/);
+});
+
+test('fork rejects legacy, failed and busy answers and leaves parent selected on runtime failure',async()=>{
+  const p=new Deepsidian();p.state.chats=[{id:'parent',title:'parent',messages:[{role:'assistant',text:'answer',status:'完成'}]}];p.state.activeId='parent';
+  let calls=0;p.connect=async()=>{calls++;throw Error('runtime unavailable');};
+  await assert.rejects(p.forkChat(0),/可靠的分支位置/);assert.equal(calls,0);
+  p.chat.messages[0].forkSeq=8;p.chat.messages[0].status='失败';
+  await assert.rejects(p.forkChat(0),/可靠的分支位置/);assert.equal(calls,0);
+  p.chat.messages[0].status='完成';p.busy=true;
+  await assert.rejects(p.forkChat(0),/等待/);p.busy=false;
+  await assert.rejects(p.forkChat(0),/runtime unavailable/);assert.equal(p.busy,false);assert.equal(p.state.activeId,'parent');
+  p.activeMessage=p.chat.messages[0];delete p.activeMessage.forkSeq;
+  p.onRuntime('session.event',{sessionId:'other',event:{type:'turn/end',seq:8,data:{reason:{kind:'completed'}}}});
+  assert.equal(p.activeMessage.forkSeq,undefined);
+  p.onRuntime('session.event',{sessionId:'parent',event:{type:'turn/end',seq:8,data:{reason:{kind:'aborted'}}}});
+  assert.equal(p.activeMessage.forkSeq,undefined);
+  p.onRuntime('session.event',{sessionId:'parent',event:{type:'turn/end',seq:12,data:{reason:{kind:'completed'}}}});
+  assert.equal(p.activeMessage.forkSeq,12);
+});

@@ -36,6 +36,7 @@ export default class Deepsidian extends Plugin {
   selectedRoute?: ModelChoice;
   busy = false;
   creatingChat = false;
+  creatingFork = false;
   stopRequested = false;
   runtimeVersion = '';
   status = '选择术语，或直接提问';
@@ -330,6 +331,28 @@ export default class Deepsidian extends Plugin {
       this.view?.renderMessages(); this.view?.refreshChats(); this.view?.refreshStatus();
     }
   }
+  async forkChat(messageIndex: number) {
+    if (this.busy) throw Error('请等待当前操作结束后分支');
+    const parent = this.chat, answer = parent?.messages[messageIndex];
+    if (!parent || answer?.role !== 'assistant' || answer.status !== '完成' || !Number.isSafeInteger(answer.forkSeq) || answer.forkSeq! < 0)
+      throw Error('此回答没有可靠的分支位置，请从更新后的完整回答创建分支');
+    const chat: Chat = { id: randomUUID(), title: `${parent.title.slice(0, 24)} · 分支`,
+      messages: structuredClone(parent.messages.slice(0, messageIndex + 1)), goal: parent.goal,
+      useMemory: parent.useMemory, contributeMemory: parent.contributeMemory };
+    chat.fork = { parentId: parent.id, parentTitle: parent.title, messageIndex, atSeq: answer.forkSeq!,
+      inheritedMessages: chat.messages.length, inheritedKey: memoryStartKey(chat, chat.messages.length) };
+    this.busy = true; this.creatingFork = true; this.view?.refreshStatus();
+    try {
+      const client = await this.connect();
+      await client.fork(parent.id, chat.id, answer.forkSeq!);
+      await this.saveChange(draft => { draft.chats.unshift(chat); draft.activeId = chat.id; },
+        () => { this.state.chats.unshift(chat); this.state.activeId = chat.id; });
+      this.toolEvents = []; this.lastUsed = Date.now();
+    } finally {
+      this.busy = false; this.creatingFork = false;
+      this.view?.renderMessages(); this.view?.refreshChats(); this.view?.refreshStatus();
+    }
+  }
   sidebarActivated() {
     this.memoryActivity();
     this.lastUsed = Date.now();
@@ -432,6 +455,7 @@ export default class Deepsidian extends Plugin {
     }
     if (method === 'session.event' && data.sessionId === this.chat?.id) {
       const event = data.event;
+      if (event.type === 'turn/end' && event.data.reason?.kind === 'completed' && this.activeMessage && Number.isSafeInteger(event.seq)) this.activeMessage.forkSeq = event.seq;
       if (event.type === 'system/message' && this.chat) this.chat.systemPrompt = event.data.message.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n');
       if (this.activeMessage && (eventLabels[event.type] || event.type.startsWith('web/'))) {
         (this.activeMessage.trace ??= []).push(traceEntry(event));

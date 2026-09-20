@@ -14,10 +14,14 @@ export function memoryStartKey(chat:Chat,index:number) {
 }
 export function memorySourceStart(chat:Chat):number {
   const start=chat.memoryStart;
-  if(!start)return 0;
+  const fork=chat.fork;
+  const floor=fork?.inheritedMessages??0;
+  if(fork && (!Number.isInteger(floor) || floor<0 || floor>chat.messages.length || memoryStartKey(chat,floor)!==fork.inheritedKey))
+    throw Error('分支继承记录已改变，无法可靠确认记忆来源');
+  if(!start)return floor;
   if(!Number.isInteger(start.index) || start.index<0 || start.index>chat.messages.length || memoryStartKey(chat,start.index)!==start.key)
     throw Error('记忆来源起点已失效（旧消息被修改或删除），请在本会话重新选择“仅从现在起贡献”；不会自动恢复旧来源');
-  return start.index;
+  return Math.max(start.index,floor);
 }
 export function contributionSources(chat:Chat):Evidence[] {
   if(chat.contributeMemory===false)throw Error('本会话已关闭记忆贡献');

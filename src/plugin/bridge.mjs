@@ -11,6 +11,7 @@ export const name = 'deepsidian-bridge';
 export const inject = ['tools', 'agents', 'sessionPersistence', 'llm', 'attachments'];
 export function apply(ctx) {
   let seq = 0;
+  let forking = false;
   const pending = new Map();
   const handles = new Map();
   const creating = new Map();
@@ -33,6 +34,34 @@ export function apply(ctx) {
       };
       void catalog().then(result => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: frame.params.requestId, result }) + '\n'), error => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: frame.params.requestId, error: { code: -32000, message: String(error) } }) + '\n'));
     }
+    if (frame.method === 'deepsidian/fork') {
+      const { sessionId, childId, atSeq, requestId } = frame.params ?? {};
+      const fork = async () => {
+        if (forking || submissions.size || [...handles.values()].some(h => h.agent.status === 'running')) throw Error('请等待当前操作结束后分支');
+        if (![sessionId, childId].every(id => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id)) || sessionId === childId || !Number.isSafeInteger(atSeq) || atSeq < 0) throw Error('无效的分支位置');
+        if (typeof ctx.sessionPersistence.open !== 'function') throw Error('此 DSH 版本不支持可靠分支，请升级 DSH');
+        forking = true;
+        try {
+          if (handles.has(childId) || await ctx.sessionPersistence.stat(childId)) throw Error('分支会话已存在');
+          await ctx.sessionPersistence.flush();
+          const source = await ctx.sessionPersistence.open(sessionId, 'read');
+          let handle;
+          try {
+            const { events } = await source.read(0, atSeq + 1);
+            const boundary = events.at(-1);
+            if (boundary?.seq !== atSeq || boundary.type !== 'turn/end' || boundary.data.reason?.kind !== 'completed') throw Error('所选回答没有完整的已完成运行记录，无法分支');
+            handle = await ctx.agents.create({ sessionId: childId, seed: events, inheritedEventCount: events.length,
+              meta: { cwd: source.header.cwd ?? process.cwd(), parentSession: sessionId, isSeeded: true }, agentOptions: route });
+            await ctx.sessionPersistence.flush();
+            handles.set(childId, handle);
+            return { sessionId: childId, atSeq };
+          } catch (error) { if (handle) await handle.dispose(); throw error; }
+          finally { await source.close(); }
+        } finally { forking = false; }
+      };
+      void fork().then(result => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: requestId, result }) + '\n'),
+        error => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: requestId, error: { code: -32000, message: String(error) } }) + '\n'));
+    }
     if (frame.method === 'deepsidian/cancel') {
       const agent = ctx.agents.get(frame.params?.sessionId);
       notify('deepsidian.cancel-status', { sessionId: frame.params?.sessionId, found: !!agent });
@@ -53,6 +82,7 @@ export function apply(ctx) {
       submissions.set(sessionId, submission);
       const checkCancelled = () => { if (submission.cancelled) throw Error('Prompt cancelled before submission'); };
       const submit = async () => {
+        if (forking) throw Error('正在创建分支，请稍后发送');
         if (!/^[0-9a-f-]{36}$/i.test(sessionId) || typeof text !== 'string' || text.length > 40000) throw Error('Invalid prompt');
         if (!Array.isArray(images) || images.length > 4 || images.some(i => typeof i.data !== 'string' || i.data.length > 7_000_000 || !['image/png','image/jpeg','image/webp','image/gif'].includes(i.mimeType))) throw Error('图片格式或大小不受支持');
         const info = await ctx.llm.resolveModelInfo(route.provider, route.model);
