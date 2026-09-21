@@ -51,3 +51,32 @@ test('completion rejects joined ASCII words without inventing boundary spaces',(
   assert.equal(context('The queue removes items.',5),null);
   assert.ok(context('The queue removes items.',9));
 });
+test('closed display math does not disable later ordinary paragraphs',()=>{
+  for(const doc of [
+    '$$x^2$$\n\n接下来说明',
+    '$$\nx^2\n$$\n\n接下来说明',
+    '$$x^2$$\n\n$$y^2$$\n\n接下来说明',
+    '\\$$不是公式\n\n接下来说明',
+    '```text\n$$\n```\n\n接下来说明',
+    '~~~\n$$\n~~~\n\n接下来说明',
+    '文字 `$$` 是代码\n\n接下来说明',
+    '参考 [标签$$](https://example.com)\n\n接下来说明',
+  ])assert.ok(context(doc),doc);
+  for(const doc of ['$$x^2\n\n尚未闭合','$$x^2\\$$\n\n转义不会闭合'])assert.equal(context(doc),null,doc);
+});
+test('completed inline constructs permit subsequent prose but open constructs remain excluded',()=>{
+  for(const doc of [
+    '用 `Map` 存储数据，接下来说明',
+    '用 ``a`b`` 存储数据，接下来说明',
+    '参考 [官方文档](https://example.com)，接下来说明',
+    '参考 [[算法笔记]]，接下来说明',
+    '当 $x>0$ 时，接下来说明',
+    '当 $$x>0$$ 时，接下来说明',
+    '正文 \\[ 转义括号不会打开链接',
+    '正文 \\` 转义符号不会打开代码',
+    '正文 \\$ 转义符号不会打开公式',
+  ])assert.ok(context(doc),doc);
+  for(const doc of ['正文 `Map 后续','正文 ``Map` 后续','正文 [[算法笔记] 后续','正文 [文档](address','正文 $x>0 时','正文 \\[ 链接[未闭合'])assert.equal(context(doc),null,doc);
+  const source='用 `Map` 存储数据';assert.equal(context(source,source.indexOf('Map')+1),null);
+  const linked='参考 [官方文档](https://example.com)，后文';assert.equal(context(linked,linked.indexOf('官方')+1),null);
+});
