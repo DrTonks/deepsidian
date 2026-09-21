@@ -1,3 +1,4 @@
+import {checkCompletion} from './completion-checks';
 import {checkLearning} from './learning-checks';
 import {DeepsidianSettings} from '../../src/plugin/settings';
 import { TESTED_DSH } from '../../src/plugin/versions';
@@ -115,14 +116,16 @@ if(screen==='idle-organizer'){const pending={id:'synthetic-idle',batch:await plu
 if(screen==='settings'){
   const root=document.getElementById('app')!;root.empty();root.style.cssText='max-width:920px;padding:24px;overflow:auto';
   plugin.idleScheduler={running:false,error:''};plugin.persist=async()=>{};
+  plugin.setCompletion=async(patch:object)=>{Object.assign(plugin.state.settings,patch);};
   plugin.setManageMemory=async(value:boolean)=>{plugin.state.settings.manageMemory=value;};plugin.setIdleMemory=async(value:boolean)=>{plugin.state.settings.idleMemory=value;};
   plugin.resolveEnvironment=()=>({versions:{dsh:TESTED_DSH},choices:[{provider:'deepseek-official',model:'deepseek-flash'}]});
   const settings=new DeepsidianSettings(plugin);settings.containerEl=root;settings.display();
   const sections=Array.from(root.querySelectorAll<HTMLDetailsElement>('.ds-settings-section'));
-  if(sections.length!==5||sections.map(s=>s.open).join()!=='true,true,true,false,false')throw Error('settings grouping/default disclosure failed');
+  if(sections.length!==6||sections.map(s=>s.open).join()!=='true,true,true,false,false,false')throw Error('settings grouping/default disclosure failed');
   sections[1]!.querySelector('summary')!.click();await new Promise(r=>setTimeout(r,0));settings.display();
   if(root.querySelectorAll<HTMLDetailsElement>('.ds-settings-section')[1]!.open)throw Error('settings disclosure lost on rerender');
   root.querySelectorAll<HTMLDetailsElement>('.ds-settings-section')[1]!.querySelector('summary')!.click();
   document.body.dataset.settingsChecks='passed';
 }
+if(screen==='completion-tests')await checkCompletion(document.body.createDiv());
 document.body.dataset.ready='true';

@@ -10,6 +10,8 @@ import { createInterface } from 'node:readline';
 
 export interface RuntimeOptions { packageRoot: string; nodePath: string; dshHome: string; runtimeHome: string; bridgePath: string; cwd: string; provider: string; model: string; reasoningEffort?: string; maxTokens?: number; webSearch?: boolean; webFetch?: boolean; memoryOrganizer?:boolean; manageMemory?:boolean; }
 export interface PromptImage { data: string; mimeType: string; name: string; }
+export interface CompletionInput { prefix: string; suffix: string; title: string; }
+export interface CompletionResult { text: string; usage?: unknown; elapsedMs: number; }
 export type ToolHandler = (name: string, args: Record<string, unknown>) => Promise<unknown>;
 export type Listener = (method: string, data: any) => void;
 export interface ModelChoice { provider: string; model: string; name?: string; inputModalities?: string[]; reasoning?: { efforts: { id: string; name: string }[] }; }
@@ -74,11 +76,14 @@ export class DshClient {
   private starting?: Promise<void>;
   private bridgeReady?: { resolve: () => void; reject: (e: Error) => void };
   private bridgeVersion = 0;
+  private completion?: { id: string; reject: (error: Error) => void; resolve: (result: CompletionResult) => void; cleanup: () => void; cancelledAt?: number };
   readonly options: RuntimeOptions;
   readonly tools: ToolHandler;
   readonly listen: Listener;
   constructor(options: RuntimeOptions, tools: ToolHandler, listen: Listener) { this.options = options; this.tools = tools; this.listen = listen; }
   get connected() { return !!this.child && this.child.exitCode === null && !this.stopping; }
+  get completionActive() { return !!this.completion; }
+  get completionStalled() { return this.completion?.cancelledAt !== undefined && Date.now() - this.completion.cancelledAt >= 15000; }
   async start() {
     if (this.starting) return this.starting;
     if (this.connected) return;
@@ -105,6 +110,7 @@ export class DshClient {
       if (generation !== this.generation) return;
       for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(error); }
       this.pending.clear();
+      if (this.completion) { const call = this.completion; this.completion = undefined; call.cleanup(); call.reject(error); }
       this.bridgeReady?.reject(error); this.bridgeReady = undefined;
       this.finish(error);
     };
@@ -144,6 +150,12 @@ export class DshClient {
       return;
     }
     if (frame.id && !frame.method) {
+      const call = this.completion;
+      if (call && frame.id === call.id) {
+        this.completion = undefined; call.cleanup();
+        frame.error ? call.reject(Error(frame.error.message)) : call.resolve(frame.result);
+        return;
+      }
       const p = this.pending.get(frame.id);
       if (p) { this.pending.delete(frame.id); clearTimeout(p.timer); frame.error ? p.reject(Error(frame.error.message)) : p.resolve(frame.result); }
       return;
@@ -165,6 +177,41 @@ export class DshClient {
     });
   }
   async models(): Promise<ModelChoice[]> { await this.start(); return this.request('deepsidian/models', {}); }
+  async complete(input: CompletionInput, signal: AbortSignal): Promise<CompletionResult> {
+    signal.throwIfAborted();
+    if (this.completion) throw Error(this.completionStalled ? '补全取消未完成，请在当前回答结束后重新连接' : '上一条补全请求仍在清理，请稍后重试');
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let dispatched = false;
+    let aborted: Error | undefined;
+    let resolve!: (result: CompletionResult) => void, reject!: (error: Error) => void;
+    const result = new Promise<CompletionResult>((yes, no) => { resolve = yes; reject = no; });
+    void result.catch(() => {});
+    const call = { id: randomUUID(), resolve, reject, cancelledAt: undefined as number | undefined, cleanup: () => { clearTimeout(timer); signal.removeEventListener('abort', onAbort); } };
+    const cancel = (error: Error) => {
+      if (this.completion !== call || aborted) return;
+      aborted = error; reject(error);
+      // Keep the slot until bridge cleanup acknowledges the request. Never kill a shared runtime.
+      if (dispatched && this.connected) {
+        call.cancelledAt = Date.now();
+        try { this.send({ jsonrpc: '2.0', method: 'deepsidian/completion-cancel', params: { requestId: call.id } }); } catch { /* close handler releases the slot */ }
+      }
+    };
+    const onAbort = () => cancel(Error('补全已取消'));
+    this.completion = call;
+    signal.addEventListener('abort', onAbort, { once: true });
+    try {
+      await this.start();
+      signal.throwIfAborted();
+      if (this.completion !== call) throw Error('补全连接已结束');
+      dispatched = true;
+      this.send({ jsonrpc: '2.0', method: 'deepsidian/completion', params: { requestId: call.id, input } });
+      timer = setTimeout(() => cancel(Error('补全超过 8 秒，已取消')), 8000);
+    } catch (error) {
+      if (this.completion === call) { this.completion = undefined; call.cleanup(); }
+      reject(error instanceof Error ? error : Error(String(error)));
+    }
+    return result;
+  }
   async fork(sessionId: string, childId: string, atSeq: number): Promise<void> {
     await this.start();
     if (this.active || this.forking) throw Error('请等待当前操作结束后分支');

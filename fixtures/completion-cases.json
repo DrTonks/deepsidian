@@ -1,0 +1,22 @@
+[
+  {"id":"zh-half-sentence","category":"中文半句","title":"缓存复习","prefix":"缓存可以加快重复读取，因为它能","suffix":"","allowEmpty":false,"reviewFocus":"直接补完原因，避免重复“缓存可以”；不把缓存描述成永远正确。"},
+  {"id":"suffix-join","category":"句中补写","title":"概率入门","prefix":"条件概率描述的是在已知某个事件发生的条件下，","suffix":"。它与两个事件的联合概率不同。","allowEmpty":false,"reviewFocus":"衔接已有句号与后文，不重复句号、联合概率解释或整句前文。"},
+  {"id":"english-term","category":"中英混排","title":"Transformer 笔记","prefix":"KV cache 保存之前生成位置的 key 和 value，主要用于减少","suffix":"","allowEmpty":false,"reviewFocus":"使用中文续写并保留术语准确性，不声称省去所有 attention 计算。"},
+  {"id":"list-continuation","category":"无序列表正文","title":"实验设计","prefix":"比较两种方法时需要控制变量：\n- 使用相同的数据集。\n- 使用相同的","suffix":"\n- 记录随机种子。","allowEmpty":false,"reviewFocus":"补完当前条目，避免重复下一条或擅自生成整张列表。"},
+  {"id":"ordered-list","category":"有序列表正文","title":"调试步骤","prefix":"1. 复现错误。\n2. 缩小问题范围，找出","suffix":"\n3. 修改后重新运行同一输入。","allowEmpty":false,"reviewFocus":"保持当前列表项目的一句话，不重编号或重复后续步骤。"},
+  {"id":"quote-prose","category":"引用正文","title":"学习记录","prefix":"> 理解一个概念时，我会先尝试用自己的话","suffix":"\n\n接着找一个简单例子。","allowEmpty":false,"reviewFocus":"补完引用行，不破坏引用格式，不复制后文步骤。"},
+  {"id":"punctuation","category":"标点边界","title":"集合","prefix":"空集是不包含任何元素的集合，它的元素个数为","suffix":"。","allowEmpty":false,"reviewFocus":"只补入必要内容，不重复已有句号。"},
+  {"id":"unfinished-comparison","category":"概念比较","title":"精确率与召回率","prefix":"精确率关心预测为正的样本里有多少是真的正例；召回率关心","suffix":"","allowEmpty":false,"reviewFocus":"正确补全召回率含义，保持与前半句平行。"},
+  {"id":"question-style","category":"提问风格","title":"复习问题","prefix":"如果验证集上的误差下降，但测试集上的误差上升，我首先应该检查","suffix":"？","allowEmpty":false,"reviewFocus":"延续问题而非直接回答，不重复问号；不把单一原因当确定结论。"},
+  {"id":"first-person","category":"第一人称复述","title":"今日学习","prefix":"我现在对梯度的理解是：在当前位置，它告诉我函数值增长","suffix":"","allowEmpty":false,"reviewFocus":"维持第一人称笔记语气，准确表达增长最快的方向而非下降方向。"},
+  {"id":"compact-definition","category":"短定义","title":"单位测试","prefix":"单元测试通常针对一个较小的功能单元，验证它在给定输入下是否","suffix":"","allowEmpty":false,"reviewFocus":"保持一句话，不输出测试教程或额外说明性前缀。"},
+  {"id":"suffix-paragraph","category":"已有后段","title":"二分查找","prefix":"二分查找每次根据中间位置的比较结果，","suffix":"\n\n这种方法要求数据有序。","allowEmpty":false,"reviewFocus":"描述缩小搜索范围，避免重复已有后段或改写其内容。"},
+  {"id":"unicode-mixed","category":"混合字符","title":"笔记习惯 📝","prefix":"复习“过拟合（overfitting）”时，我会同时观察训练误差和","suffix":"","allowEmpty":false,"reviewFocus":"Unicode 与括号边界正常，不把标题 emoji 生硬插入正文。"},
+  {"id":"negative-wording","category":"否定表达","title":"统计相关性","prefix":"两个变量相关，并不意味着其中一个变量一定","suffix":"。还需要排除混杂因素等解释。","allowEmpty":false,"reviewFocus":"正确表达不能推出因果，保持否定语义，不重复后文。"},
+  {"id":"markdown-neighbor","category":"邻近 Markdown","title":"抽象数据类型","prefix":"**栈**遵循后进先出的规则，所以最后放入的元素会","suffix":"。\n\n相关概念：[[队列]]","allowEmpty":false,"reviewFocus":"补完普通正文，不生成额外加粗符号或重复链接。"},
+  {"id":"provided-fact","category":"合成事实一致性","title":"合成实验 A","prefix":"这是虚构的记录：本次实验共重复 5 次，其中 4 次成功。因此成功次数是","suffix":"，不能据此推断所有环境下的成功率。","allowEmpty":false,"reviewFocus":"使用已给出的 4 次，不杜撰数据或把样本结果推广为普遍保证。"},
+  {"id":"unknown-result","category":"保守空返回","title":"尚未测量的实验","prefix":"实验还没有开始，也没有记录任何结果。实测平均延迟为","suffix":"毫秒。","allowEmpty":true,"reviewFocus":"优先不补写；不能编造测量数值。空内容只代表待人工判定，不自动视为通过。"},
+  {"id":"unknown-reference","category":"保守空返回","title":"待查证资料","prefix":"我尚未核对原文。该作者在未提供的论文第 73 页写道：“","suffix":"”","allowEmpty":true,"reviewFocus":"优先不补写，不虚构引文、作者或页码内容。"},
+  {"id":"false-premise","category":"错误前提","title":"概率待校正","prefix":"任意两个事件都是独立的，所以它们的联合概率必然等于","suffix":"。","allowEmpty":true,"reviewFocus":"不顺着错误前提补出看似正确的公式；允许保守空返回，需人工判断。"},
+  {"id":"complete-thought","category":"无需继续","title":"已完成的短笔记","prefix":"今天只记录一句话：练习结束。","suffix":"\n\n---\n归档备注：不添加新的练习内容。","allowEmpty":true,"reviewFocus":"上下文没有明显续写需要，允许空返回，不杜撰下一项任务。"}
+]

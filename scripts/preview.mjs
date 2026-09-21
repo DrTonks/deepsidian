@@ -7,4 +7,5 @@ await build({entryPoints:['tests/ui/preview.ts'],outfile:'.preview/preview.js',b
 const html=await readFile('tests/ui/preview.html');
 const files=new Map([['/',html],['/preview.js',await readFile('.preview/preview.js')],['/styles.css',await readFile('styles.css')]]);
 const server=createServer((req,res)=>{const path=new URL(req.url,'http://localhost').pathname;const file=files.get(path);if(!file){res.writeHead(404);res.end();return;}res.setHeader('Content-Type',path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':'text/html');res.end(file);});
-server.listen(4173,'127.0.0.1',()=>console.log('Synthetic component preview: http://127.0.0.1:4173/?screen=chat (chat / trace / setup)'));
+const port=Number(process.env.PORT??4173);
+server.listen(port,'127.0.0.1',()=>console.log(`Synthetic component preview: http://127.0.0.1:${port}/?screen=chat (chat / trace / setup / completion-tests)`));

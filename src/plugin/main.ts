@@ -1,3 +1,6 @@
+import {createCompletionExtension, requestCompletion} from './completion/editor';
+import {reserveCompletion, completionExcluded} from './completion/budget';
+import type {EditorView} from '@codemirror/view';
 import { contextManifest } from './learning-context';
 import { TESTED_DSH } from './versions';
 import { Plugin, MarkdownView, Notice, FileSystemAdapter, TFile, addIcon } from 'obsidian';
@@ -13,7 +16,7 @@ import { reasoningText, traceEntry, eventLabels } from './trace';
 
 import { WHALE_ICON } from './logo';
 
-import { VIEW, defaults, type Saved, type Chat, type Message } from './types';
+import { VIEW, defaults, type Saved, type Chat, type Message, type Settings } from './types';
 import { LearningView } from './view';
 import { DeepsidianSettings } from './settings';
 import { SetupModal } from './setup';
@@ -33,6 +36,53 @@ import {SourcesModal} from './sources-modal';
 export default class Deepsidian extends Plugin {
   state: Saved = { settings: { ...defaults }, chats: [], activeId: '' };
   client?: DshClient;
+  private completionExtension?:ReturnType<typeof createCompletionExtension>;
+  private completionAbort?:AbortController;
+  private completionPending=false;
+  private completionSettingsPending=0;
+  private completionGeneration=0;
+  completionEnabled(path?:string) {
+    return this.state.settings.completionEnabled && !this.completionSettingsPending && !this.disposed && (!path || !completionExcluded(path,this.state.settings.completionExcluded));
+  }
+  private cancelCompletion() {
+    this.completionGeneration++;
+    this.completionExtension?.cancelAll();
+    this.completionAbort?.abort();
+  }
+  async setCompletion(patch:Partial<Pick<Settings,'completionEnabled'|'completionExcluded'>>) {
+    this.cancelCompletion();this.completionSettingsPending++;
+    try {
+      await this.saveChange(draft=>{Object.assign(draft.settings,patch);},()=>{Object.assign(this.state.settings,patch);});
+    } finally {this.completionSettingsPending--;}
+  }
+  private completionMetric(kind:'shown'|'accepted') {
+    void this.saveChange(draft=>{if(draft.completionBudget)draft.completionBudget[kind]++;},()=>{
+      if(this.state.completionBudget)this.state.completionBudget[kind]++;
+    }).catch(()=>new Notice('无法保存补全统计'));
+  }
+  async completeNote(input:{prefix:string;suffix:string;title:string}, signal:AbortSignal) {
+    if(!this.completionEnabled())throw Error('请先在设置中开启实验性手动补全');
+    if(this.completionPending || this.client?.completionActive)throw Error('上一条补全正在结束，请稍后再试');
+    signal.throwIfAborted();
+    const generation=this.completionGeneration;
+    const controller=new AbortController();this.completionAbort=controller;this.completionPending=true;
+    const abort=()=>controller.abort();signal.addEventListener('abort',abort,{once:true});
+    const check=()=>{controller.signal.throwIfAborted();if(generation!==this.completionGeneration||!this.completionEnabled())throw Error('补全已关闭');};
+    this.lastUsed=Date.now();this.memoryActivity();
+    try {
+      const client=await this.connect();check();
+      let reserved:ReturnType<typeof reserveCompletion>;
+      // Reserve durably before dispatch; cancellation after reservation still consumes a slot.
+      await this.saveChange(draft=>{check();reserved=reserveCompletion(draft.completionBudget);draft.completionBudget=reserved;},()=>{this.state.completionBudget=reserved;});
+      check();
+      const result=await client.complete(input,controller.signal);check();
+      return result;
+    } finally {
+      signal.removeEventListener('abort',abort);this.completionPending=false;
+      if(this.completionAbort===controller)this.completionAbort=undefined;
+      this.lastUsed=Date.now();
+    }
+  }
   models: ModelChoice[] = [];
   selectedRoute?: ModelChoice;
   busy = false;
@@ -111,7 +161,7 @@ export default class Deepsidian extends Plugin {
   }
   readonly idleScheduler=new MemoryScheduler({
     enabled:()=>this.state.settings.idleMemory,
-    blocked:()=>this.busy || this.disposed || !this.layoutReady,
+    blocked:()=>this.busy || this.completionPending || !!this.client?.completionActive || this.disposed || !this.layoutReady,
     chats:()=>this.state.chats,state:()=>this.state.idleMemory??newIdleMemory(),
     save:change=>this.saveIdleMemory(change),snapshot:()=>this.memory().snapshot(),
     run:(prompt,signal)=>this.runMemoryModel(prompt,signal),
@@ -137,10 +187,19 @@ export default class Deepsidian extends Plugin {
   async onload() {
     addIcon('deepsidian-whale', WHALE_ICON);
     const saved = await this.loadData() as Partial<Saved> | null;
-    this.state = { settings: { ...defaults, ...saved?.settings }, chats: saved?.chats ?? [], activeId: saved?.activeId ?? '', updates: saved?.updates, idleMemory:saved?.idleMemory };
+    this.state = { settings: { ...defaults, ...saved?.settings }, chats: saved?.chats ?? [], activeId: saved?.activeId ?? '', updates: saved?.updates, idleMemory:saved?.idleMemory, completionBudget:saved?.completionBudget };
     if (!this.chat) await this.newChat();
     // Connect only after Obsidian has restored its layout; do not block onload.
     for (const chat of this.state.chats) for (const message of chat.messages) if (message.status === '生成中') message.status = '上次运行被中断';
+    this.completionExtension=createCompletionExtension({enabled:path=>this.completionEnabled(path),complete:(input,signal)=>this.completeNote(input,signal),report:message=>new Notice(message),shown:()=>this.completionMetric('shown'),accepted:()=>this.completionMetric('accepted')});
+    this.registerEditorExtension(this.completionExtension.extension);
+    this.addCommand({id:'complete-note',name:'请求当前位置补全（实验）',editorCallback:(editor)=>{
+      const cm=(editor as typeof editor & {cm?:EditorView}).cm;
+      if(!cm){new Notice('当前编辑器不支持内联补全');return;}
+      cm.focus();
+      void requestCompletion(cm);
+    }});
+    this.addCommand({id:'dismiss-completion',name:'取消当前补全',callback:()=>this.cancelCompletion()});
     this.registerView(VIEW, leaf => new LearningView(leaf, this));
     this.addRibbonIcon('deepsidian-whale', 'Deepsidian 学习助手', () => void this.open());
     this.addCommand({ id: 'open', name: '打开学习侧栏', callback: () => void this.open() });
@@ -173,7 +232,7 @@ export default class Deepsidian extends Plugin {
     this.registerInterval(window.setInterval(() => this.maintainConnection(), 1000));
     if(typeof document!=='undefined')this.watchMemoryDocument(document);
   }
-  onunload() { this.disposed = true;for(const cleanup of this.memoryDocuments.values())cleanup();this.memoryDocuments.clear();this.idleScheduler.dispose();this.organizerAbort?.abort(); void this.client?.stop(); }
+  onunload() { this.disposed = true; this.cancelCompletion();for(const cleanup of this.memoryDocuments.values())cleanup();this.memoryDocuments.clear();this.idleScheduler.dispose();this.organizerAbort?.abort(); void this.client?.stop(); }
   memory(){
     if(!this.memoryStore){
       if(!(this.app.vault.adapter instanceof FileSystemAdapter))throw Error('记忆仅支持桌面本地库');
@@ -369,11 +428,12 @@ export default class Deepsidian extends Plugin {
   }
   private maintainConnection() {
     if (this.disposed || !this.layoutReady) return;
+    if(this.client?.completionStalled && !this.busy && !this.completionPending && !this.connecting && !this.disconnecting){void this.disconnect().catch(()=>{});return;}
     void this.idleScheduler.tick();
     if (this.view?.hasFocus()) {
       this.lastUsed = Date.now();
       void this.ensureAutomaticConnection();
-    } else if (!this.busy && !this.connecting && !this.disconnecting && this.client?.connected && Date.now() - this.lastUsed > 300000) {
+    } else if (!this.busy && !this.completionPending && !this.client?.completionActive && !this.connecting && !this.disconnecting && this.client?.connected && Date.now() - this.lastUsed > 300000) {
       void this.disconnect().catch(() => {});
     }
   }
@@ -445,6 +505,7 @@ export default class Deepsidian extends Plugin {
     this.view?.refreshConnection(); return client;
   }
   async disconnect() {
+    this.cancelCompletion();
     if(this.disconnecting)return this.disconnecting;
     const job=(async()=>{await this.connecting?.catch(()=>{});await this.client?.stop();this.client=undefined;this.status=this.state.settings.autoConnect?'运行时已休眠，返回侧栏将自动连接':'运行时已休眠，发送消息时连接';this.view?.refreshStatus();})();
     this.disconnecting=job;

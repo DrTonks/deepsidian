@@ -1,0 +1,53 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {EditorState,EditorSelection} from '@codemirror/state';
+import {markdown} from '@codemirror/lang-markdown';
+import {ensureSyntaxTree} from '@codemirror/language';
+import {completionContext,normalizeCompletion} from '../src/plugin/completion/context.ts';
+
+function context(doc:string,at=doc.length){
+  const state=EditorState.create({doc,selection:{anchor:at},extensions:markdown()});
+  ensureSyntaxTree(state,at,100);
+  return completionContext(state,'笔记标题');
+}
+test('completion bounds unsaved prefix, suffix and title at the actual insertion point',()=>{
+  const doc='前'.repeat(3500)+'后'.repeat(1500),state=EditorState.create({doc,selection:{anchor:3500},extensions:markdown()});
+  ensureSyntaxTree(state,3500,100);
+  const value=completionContext(state,'标题'.repeat(200));
+  assert.ok(value);assert.equal(value.prefix,'前'.repeat(3000));assert.equal(value.suffix,'后'.repeat(1000));assert.equal(value.title.length,200);
+});
+test('completion refuses unparsed, selected, multiple-cursor and readonly editors',()=>{
+  assert.equal(completionContext(EditorState.create({doc:'正文'}),'title'),null);
+  for(const state of [
+    EditorState.create({doc:'正文',selection:{anchor:0,head:1},extensions:markdown()}),
+    EditorState.create({doc:'正文',selection:EditorSelection.create([EditorSelection.cursor(0),EditorSelection.cursor(2)]),extensions:[markdown(),EditorState.allowMultipleSelections.of(true)]}),
+    EditorState.create({doc:'正文',extensions:[markdown(),EditorState.readOnly.of(true)]}),
+  ])assert.equal(completionContext(state,'title'),null);
+});
+test('completion allows prose and refuses structured or incomplete Markdown constructs',()=>{
+  assert.ok(context('这是普通正文'));
+  assert.ok(context('- 这是列表中的正文'));
+  assert.ok(context('> 这是引用中的正文'));
+  assert.ok(context('>> 这是嵌套引用中的正文'));
+  for(const doc of ['---\ntitle: private','```ts\nconst a =','~~~\ncode','$$\nx =','正文 $x','正文 `code','正文 [[链接','正文 [链接](address','正文 #标签','| 表格 | 内容 |','# 正在写标题','<!-- private'])assert.equal(context(doc),null,doc);
+  assert.ok(context('---\ntitle: note\n---\n\n正文'));
+  assert.ok(context('```\ncode\n```\n\n正文'));
+});
+test('completion finalization preserves boundary spaces and rejects multiline/control output',()=>{
+  assert.equal(normalizeCompletion(' continuation  '),' continuation  ');
+  for(const value of ['','  ','第一行\n第二行','第一行\r第二行','第一行\u2028第二行','bad\u0000text','a'.repeat(501),'```bad','```text\n一句补全\n```','\n正文','正文\n'])assert.equal(normalizeCompletion(value),null);
+});
+test('completion rejects joined ASCII words without inventing boundary spaces',()=>{
+  const input={prefix:'The newest item is',suffix:' before older items.',title:'Queue'};
+  assert.equal(normalizeCompletion('removed first',input),null);
+  assert.equal(normalizeCompletion(' removed first',input),' removed first');
+  const right={prefix:'The newest item is ',suffix:'before older items.',title:'Queue'};
+  assert.equal(normalizeCompletion('removed first',right),null);
+  assert.equal(normalizeCompletion('removed first ',right),'removed first ');
+  assert.equal(normalizeCompletion('2',{prefix:'version1',suffix:'',title:''}),null);
+  assert.equal(normalizeCompletion('3',{prefix:'',suffix:'4 items',title:''}),null);
+  assert.equal(normalizeCompletion('中文',{prefix:'中文',suffix:'后文',title:''}),'中文');
+  assert.equal(normalizeCompletion(', then',{prefix:'first',suffix:'.',title:''}),', then');
+  assert.equal(context('The queue removes items.',5),null);
+  assert.ok(context('The queue removes items.',9));
+});

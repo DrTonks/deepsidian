@@ -10,8 +10,8 @@
     "build": "npm run typecheck && node scripts/build.mjs",
     "install:dev": "node scripts/install.mjs",
     "doctor": "node scripts/doctor.ts",
-    "test": "node --test tests/core.test.ts tests/trace.test.ts tests/memory.test.ts tests/manage.test.ts tests/host.test.ts tests/discovery.test.ts tests/scheduler.test.ts tests/catalog.test.ts tests/catalog-host.test.ts tests/knowledge.test.ts",
-    "test:integration": "node --test tests/runtime.test.ts tests/web.test.ts tests/messages.test.ts",
+    "test": "node --test tests/core.test.ts tests/trace.test.ts tests/memory.test.ts tests/manage.test.ts tests/host.test.ts tests/discovery.test.ts tests/scheduler.test.ts tests/catalog.test.ts tests/catalog-host.test.ts tests/knowledge.test.ts tests/completion-budget.test.ts tests/completion.test.ts",
+    "test:integration": "node --test tests/runtime.test.ts tests/web.test.ts tests/messages.test.ts tests/completion-runtime.test.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "live": "node scripts/live.ts",
     "preview": "node scripts/preview.mjs",
@@ -20,9 +20,17 @@
     "eval:memory": "node scripts/eval-memory.ts",
     "live:manage": "node scripts/live-manage.ts",
     "live:knowledge": "node scripts/live-knowledge.ts",
-    "live:fork": "node scripts/live-fork.ts"
+    "live:fork": "node scripts/live-fork.ts",
+    "live:completion": "node scripts/live-completion.ts",
+    "package:experimental": "npm run build && node scripts/package-experimental.mjs"
   },
   "devDependencies": {
+    "@codemirror/autocomplete": "6.20.3",
+    "@codemirror/commands": "6.8.1",
+    "@codemirror/lang-markdown": "6.3.4",
+    "@codemirror/language": "6.11.3",
+    "@codemirror/state": "6.5.0",
+    "@codemirror/view": "6.38.6",
     "@types/node": "22.20.2",
     "esbuild": "0.28.2",
     "obsidian": "1.13.1",
@@ -30,5 +38,8 @@
   },
   "version": "0.6.5",
   "description": "An Obsidian sidebar powered by a local DeepSeek Harness runtime.",
-  "license": "MIT"
+  "license": "MIT",
+  "overrides": {
+    "@codemirror/lint": "6.8.5"
+  }
 }

@@ -1,3 +1,5 @@
+import {StateField} from '@codemirror/state';
+export const editorInfoField=StateField.define<any>({create:()=>null,update:value=>value});
 // Minimal Node host for lifecycle/command tests; UI tests use the browser adapter.
 export class Plugin {
   app:any={workspace:{onLayoutReady:(cb:()=>void)=>{this.ready=cb;},on:()=>({})}};
@@ -5,7 +7,7 @@ export class Plugin {
   manifest={id:'deepsidian'};
   saved:any=null;
   async loadData(){return this.saved;} async saveData(_data:any){}
-  registerView(){} addRibbonIcon(){} addCommand(){} registerEvent(){} addSettingTab(){} registerInterval(){}
+  registerEditorExtension(){} registerView(){} addRibbonIcon(){} addCommand(){} registerEvent(){} addSettingTab(){} registerInterval(){}
 }
 export class Component {}
 export class ItemView {}

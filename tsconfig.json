@@ -23,6 +23,7 @@
     "scripts/live-manage.ts",
     "scripts/eval-memory.ts",
     "scripts/doctor.ts",
-    "scripts/live-fork.ts"
+    "scripts/live-fork.ts",
+    "scripts/live-completion.ts"
   ]
 }
