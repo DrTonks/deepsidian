@@ -489,3 +489,29 @@ test('fork rejects legacy, failed and busy answers and leaves parent selected on
   p.onRuntime('session.event',{sessionId:'parent',event:{type:'turn/end',seq:12,data:{reason:{kind:'completed'}}}});
   assert.equal(p.activeMessage.forkSeq,12);
 });
+
+test('context manifest distinguishes images, text, current note and inherited history without embedding image data',async()=>{
+  const p=new Deepsidian();p.state.chats=[{id:'chat',title:'chat',messages:[{role:'user',text:'old'}],fork:{inheritedMessages:1}}];p.state.activeId='chat';
+  p.source={path:'n.md',selection:'a',nearby:'b'};
+  const files=[{id:'t',name:'x.txt',text:'x'},{id:'i',name:'x.png',image:{name:'x.png',mimeType:'image/png',data:'eA=='}}];
+  const manifest=p.previewContext(files);assert.equal(manifest.historyMessages,1);assert.equal(manifest.inheritedMessages,1);
+  assert.equal(manifest.items.find((i:any)=>i.kind==='image').bytes,1);assert.doesNotMatch(JSON.stringify(manifest),/eA==/);
+  const hash=manifest.items[1].hash;files[0].text='y';assert.notEqual(p.previewContext(files).items[1].hash,hash);
+  assert.equal(p.previewContext([]).items.length,1);p.source={path:'',selection:'',nearby:''};assert.equal(p.previewContext([]).items.length,0);
+});
+
+
+test('drafts survive persistence independently; abandoned return fields never enter new requests',async()=>{
+  const p=new Deepsidian();p.capture=()=>{};
+  p.state.chats=[{id:'parent',title:'main',messages:[]},{id:'child',title:'branch',messages:[]}];p.state.activeId='parent';
+  p.setDraftText('parent','parent draft');p.setDraftText('child','child draft');
+  let saved:any;p.saveData=async(value:any)=>{saved=structuredClone(value);};await p.persist();
+  const restored=new Deepsidian();restored.state=saved;
+  assert.equal(restored.chat.draft.text,'parent draft');await restored.selectChat('child');assert.equal(restored.chat.draft.text,'child draft');
+  p.chat.draft.conclusions=[{text:'REMOVED-RETURN-FEATURE'}];
+  let request='';p.connect=async()=>({options:{model:'test'},prompt:async(_id:string,text:string)=>{request=text;return {kind:'completed'};}});
+  await p.ask('new question',[{id:'x',name:'x.txt',text:'attachment snapshot'}]);
+  assert.doesNotMatch(request,/REMOVED-RETURN-FEATURE/);
+  assert.equal(p.chat.messages[0].manifest.items.length,1);assert.equal(p.chat.messages[0].manifest.promptChars,request.length);
+  assert.equal(p.chat.draft.text,'');assert.equal(p.state.chats[1].draft.text,'child draft');
+});

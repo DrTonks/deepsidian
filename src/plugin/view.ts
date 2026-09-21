@@ -8,6 +8,7 @@ import { renderTraceView } from './trace-view';
 import { SetupModal } from './setup';
 import { compareVersions } from './versions';
 import { commandMatches, parseCommand } from './commands';
+import { ComposerContextModal } from './learning-modals';
 import { SessionHistory } from './history';
 
 export class LearningView extends ItemView {
@@ -17,6 +18,9 @@ export class LearningView extends ItemView {
   private executionEl?: HTMLElement;
   private executionCount = -1;
   private attachments: Attachment[] = [];
+  private attachmentDrafts = new Map<string,Attachment[]>();
+  private draftChatId = '';
+  private draftTimer?: ReturnType<typeof setTimeout>;
   private submittedAttachments = 0;
   private preparingAttachments = false;
   private attachmentEl!: HTMLElement;
@@ -102,7 +106,7 @@ export class LearningView extends ItemView {
     this.attachmentEl = composer.createDiv('ds-attachments');
     this.commandMenu=composer.createDiv({cls:'ds-command-menu',attr:{role:'listbox','aria-label':'斜杠指令'}});this.commandMenu.hidden=true;
     this.input = composer.createEl('textarea', { attr: { placeholder: '从一个不理解的概念开始…', 'aria-label': '学习问题', rows: '3' } });
-    this.input.addEventListener('input',()=>{this.commandIndex=0;this.renderCommands();});
+    this.input.addEventListener('input',()=>{this.commandIndex=0;this.renderCommands();this.saveDraftText();});
     this.input.addEventListener('keydown', event => {
       if(event.defaultPrevented || event.isComposing)return;
       const matches=commandMatches(this.input.value);
@@ -117,13 +121,15 @@ export class LearningView extends ItemView {
     this.input.addEventListener('paste', event => { const files = Array.from(event.clipboardData?.files ?? []); if (files.length) { event.preventDefault(); void this.addFiles(files); } });
     const actions = composer.createDiv('ds-toolbar ds-compose-actions');
     const picker = composer.createEl('input', { attr: { type: 'file', accept: FILE_ACCEPT, multiple: '', hidden: '' } });
-    picker.onchange = () => { void this.addFiles(Array.from(picker.files ?? [])); picker.value = ''; };
-    this.iconButton(actions, 'paperclip', '附加文件或截图', () => picker.click());
-    this.iconButton(actions, 'files', '选择库内文件', () => new VaultPicker(this.app, file => {
-      if (file.stat.size > 5 * 1024 * 1024) { new Notice('附件超过 5MB'); return; }
-      void this.app.vault.readBinary(file).then(data => this.addFiles([{ name: file.path, size: file.stat.size, arrayBuffer: async () => data }])).catch(error => new Notice(String(error)));
-    }).open());
+    picker.onchange = () => { void this.addFiles(Array.from(picker.files ?? []),pickerChatId); picker.value = ''; };
+    let pickerChatId:string|undefined;
+    this.iconButton(actions, 'paperclip', '附加文件或截图', () => {pickerChatId=this.plugin.chat?.id;picker.click();});
+    this.iconButton(actions, 'files', '选择库内文件', () => {
+      const chatId=this.plugin.chat?.id;
+      new VaultPicker(this.app, file => { void this.addVaultFile(file,chatId).catch(error=>new Notice(String(error))); }).open();
+    });
     this.iconButton(actions, 'text-cursor-input', '使用当前选区', () => { this.plugin.includeContext = true; this.plugin.capture(); this.refreshContext(); });
+    this.iconButton(actions, 'list-checks', '查看下次发送的上下文', () => { this.plugin.capture();this.refreshContext();new ComposerContextModal(this.plugin,this).open(); });
     this.modelSelect = actions.createEl('select', { cls: 'ds-model', attr: { 'aria-label': '模型' } });
     this.modelSelect.onchange = () => { const [provider, model] = this.modelSelect.value.split('\n'); void this.changeRoute({ provider, model, reasoningEffort: '' }); };
     this.iconButton(actions, 'refresh-cw', '刷新 DSH 模型列表（不发起对话）', () => void this.loadModels());
@@ -141,8 +147,17 @@ export class LearningView extends ItemView {
     this.statusEl = root.createDiv('ds-status');
     this.plugin.capture(); this.refreshChats(); this.refreshContext(); this.refreshStatus(); this.renderMessages(); this.renderModels();
   }
-  setQuestion(text: string) { this.input.value = text; this.input.focus(); this.refreshContext(); this.renderCommands(); }
-  private chooseCommand(name:string){this.input.value=`/${name} `;this.commandMenu.hidden=true;this.input.removeAttribute('aria-activedescendant');this.input.focus();}
+  setQuestion(text: string) { this.input.value = text; this.saveDraftText(); this.input.focus(); this.refreshContext(); this.renderCommands(); }
+  private saveDraftText() {
+    if(!this.draftChatId)return;
+    this.plugin.setDraftText(this.draftChatId,this.input.value);
+    clearTimeout(this.draftTimer);
+    this.draftTimer=setTimeout(()=>{void this.plugin.persist().catch(()=>new Notice('草稿保存失败；当前文字仍保留，请重试或复制备份'));},350);
+  }
+  pendingFiles(){return [...this.attachments];}
+  removePendingFile(id:string){if(this.preparingAttachments||this.plugin.busy)throw Error('请等待当前操作结束');this.attachments=this.attachments.filter(a=>a.id!==id);this.renderAttachments();}
+  removeCurrentContext(){if(this.plugin.busy)throw Error('请等待当前操作结束');this.plugin.includeContext=false;this.plugin.source={...EMPTY_CONTEXT};this.refreshContext();}
+  private chooseCommand(name:string){this.input.value=`/${name} `;this.saveDraftText();this.commandMenu.hidden=true;this.input.removeAttribute('aria-activedescendant');this.input.focus();}
   private renderCommands(){
     const matches=commandMatches(this.input.value);this.commandMenu.empty();this.commandMenu.hidden=!matches.length;
     this.input.removeAttribute('aria-activedescendant');
@@ -158,11 +173,21 @@ export class LearningView extends ItemView {
     const button = parent.createEl('button', { cls: 'ds-icon', attr: { 'aria-label': label } });
     setIcon(button, icon); button.onclick = action; return button;
   }
-  private async addFiles(files: { name: string; size: number; arrayBuffer(): Promise<ArrayBuffer> }[]) {
+  private async addVaultFile(file:TFile,chatId:string|undefined) {
+    await this.addFiles([{name:file.path,size:file.stat.size,arrayBuffer:()=>this.app.vault.readBinary(file)}],chatId);
+  }
+  private async addFiles(files: { name: string; size: number; arrayBuffer(): Promise<ArrayBuffer> }[], chatId=this.plugin.chat?.id) {
+    if(this.closed)return;
     if(this.preparingAttachments){new Notice('正在准备发送，请稍后添加附件');return;}
     for (const file of files) {
+      if(chatId!==this.plugin.chat?.id){new Notice('会话已切换，请在目标会话重新添加附件');break;}
       if (this.attachments.length + this.submittedAttachments >= 4) { new Notice('最多 4 个附件；正在发送的附件暂时保留名额，以便失败时恢复'); break; }
-      try { const attachment = await readAttachment(file); if (!this.preparingAttachments && this.attachments.length + this.submittedAttachments < 4) this.attachments.push(attachment); }
+      try {
+        const attachment = await readAttachment(file);
+        if(this.closed)return;
+        if(chatId!==this.plugin.chat?.id){new Notice('会话已切换，请在目标会话重新添加附件');break;}
+        if(!this.preparingAttachments && this.attachments.length + this.submittedAttachments < 4)this.attachments.push(attachment);
+      }
       catch (error) { new Notice(String(error)); }
     }
     this.renderAttachments();
@@ -221,11 +246,17 @@ export class LearningView extends ItemView {
     let text = this.input.value.trim() || (this.attachments.length ? '请结合这些资料解释我需要理解的重点。' : '');
     if (!text || this.plugin.busy || this.changing) return;
     if(text.startsWith('/')){
-      if(this.attachments.length && !['plan','context'].includes(parseCommand(text)?.name??'')){new Notice('此指令不接收附件，请先移除附件；草稿已保留');return;}
+      if((this.attachments.length) && !['plan','context'].includes(parseCommand(text)?.name??'')){new Notice('此指令不接收附件，请先移除附件；草稿已保留');return;}
+      const commandChatId=this.plugin.chat!.id,commandDraft=this.input.value;
       this.changing=true;this.refreshStatus();
       try {
         const result=await this.plugin.runCommand(text);
-        if(!result.question){this.input.value='';this.commandMenu.hidden=true;return;}
+        if(!result.question){
+          const original=this.plugin.state.chats.find(c=>c.id===commandChatId);
+          if(original?.draft?.text===commandDraft)this.plugin.setDraftText(commandChatId,'');
+          if(this.plugin.chat?.id===commandChatId && this.input.value===commandDraft)this.input.value='';
+          await this.plugin.persist();this.commandMenu.hidden=true;return;
+        }
         text=result.question;
       } catch(error){new Notice(String(error));return;}
       finally{this.changing=false;this.refreshStatus();}
@@ -244,12 +275,20 @@ export class LearningView extends ItemView {
         this.preparingAttachments=false;
       this.attachments = this.attachments.filter(file => !files.includes(file));
       if (this.input.value === draft) this.input.value = '';
+      this.saveDraftText();
       this.commandMenu.hidden = true; this.renderAttachments();
       });
       if (submitted && this.plugin.chat?.messages.at(-1)?.status === '失败') { this.attachments.push(...files); this.renderAttachments(); }
     } finally {this.preparingAttachments=false;this.submittedAttachments=0;this.renderAttachments();}
   }
   refreshChats() {
+    const id=this.plugin.chat?.id??'';
+    if(this.input && id!==this.draftChatId){
+      if(this.draftChatId)this.attachmentDrafts.set(this.draftChatId,this.attachments);
+      this.attachments=this.attachmentDrafts.get(id)??[];this.draftChatId=id;
+      this.input.value=this.plugin.chat?.draft?.text??'';this.renderAttachments();this.renderCommands();
+    }
+
     if (this.chatTitle) this.chatTitle.setText(this.plugin.chat?.title || '新对话');
     this.history?.refresh();
   }
@@ -307,9 +346,15 @@ export class LearningView extends ItemView {
     for (const [messageIndex, message] of chat.messages.entries()) {
       if(message.role==='user')sourcePath=message.source?.path??'';
       const card = this.messages.createDiv(`ds-message ds-${message.role}`);
-      card.dataset.sourcePath=sourcePath;
+      card.dataset.sourcePath=sourcePath;card.dataset.messageIndex=String(messageIndex);
       card.createDiv({ cls: 'ds-label', text: message.role === 'user' ? '你' : `Deepsidian${message.model ? ' · ' + message.model : ''}${message.status ? ' · ' + message.status : ''}` });
       if (message.source?.path) card.createEl('button', { cls: 'ds-source', text: message.source.path }).onclick = () => { void this.plugin.openSource(message.source!.path).catch(error=>new Notice(String(error))); };
+      if(message.manifest){
+        const manifest=message.manifest,detail=card.createEl('details',{cls:'ds-context-manifest'});
+        detail.createEl('summary',{text:'发送时上下文清单'});
+        detail.createEl('p',{text:`初始用户请求 ${manifest.promptChars} 字符（含本轮记忆提示）；另有 ${manifest.historyMessages} 条界面历史。系统提示词、历史和后续工具输出不计入此字符数。记忆读取${manifest.memoryEnabled?'开启':'关闭'}。`});
+        for(const item of manifest.items)detail.createEl('p',{text:`${item.label} · ${item.chars!==undefined?item.chars+' 字符':item.bytes+' 字节'} · SHA-256 ${item.hash.slice(0,12)}`});
+      }
       if (message.attachments?.length) card.createDiv({ cls: 'ds-muted', text: '附件 · ' + message.attachments.join(' · ') });
       if (message.role === 'assistant') {
         const work = card.createEl('details', { cls: 'ds-work' });
@@ -375,7 +420,7 @@ export class LearningView extends ItemView {
     try { target.empty(); await MarkdownRenderer.render(this.app, message.text, target, target.dataset.sourcePath??'', this.markdown); if (follow) this.messages.scrollTop = this.messages.scrollHeight; }
     finally { this.rendering = false; if (this.renderAgain) { this.renderAgain = false; this.scheduleAnswer(); } }
   }
-  async onClose() { this.closed = true; this.focusCleanup?.(); this.history?.dispose(); clearTimeout(this.timer); this.plugin.detach(this); this.markdown.unload(); }
+  async onClose() { this.closed = true; clearTimeout(this.draftTimer); this.focusCleanup?.(); this.history?.dispose(); clearTimeout(this.timer); this.plugin.detach(this); this.markdown.unload(); await this.plugin.persist().catch(()=>new Notice('草稿保存失败')); }
 }
 
 class VaultPicker extends FuzzySuggestModal<TFile> {

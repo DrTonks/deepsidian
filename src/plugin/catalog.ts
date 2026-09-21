@@ -73,9 +73,11 @@ export class CatalogModal extends Modal {
     finally{this.busy=false;this.render();}
   }
   private assertEditorUnchanged(path:string,expected:string){
+    // CodeMirror normalizes line separators; compare content without treating CRLF as an edit.
+    const normalized=expected.replace(/\r\n/g,'\n');
     for(const leaf of this.app.workspace?.getLeavesOfType('markdown')??[]){
       const view=leaf.view as any;
-      if(view.file?.path===path && view.editor && view.editor.getValue()!==expected)throw Error('导航有未保存编辑，请先保存再重新预览');
+      if(view.file?.path===path && view.editor && view.editor.getValue().replace(/\r\n/g,'\n')!==normalized)throw Error('导航有未保存编辑，请先保存再重新预览');
     }
   }
   private async create(){

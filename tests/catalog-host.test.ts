@@ -109,3 +109,20 @@ test('catalog rechecks unsaved edits after waiting for the Vault process callbac
   assert.equal(await readFile(nav,'utf8'),original);
   assert.equal(editorText,original+'\n另一个窗口的未保存编辑');
 });
+
+test('catalog accepts CRLF on disk with LF editor text but still rejects real unsaved changes',async()=>{
+  const {EditorState}=await import('@codemirror/state');
+  const {root,modal,metadataCache}=await fixture();await modal.preview();await modal.create();
+  const nav=join(root,'_本地管理/文章导航.md');
+  const original=(await readFile(nav,'utf8')).replace(/\n/g,'\r\n');await writeFile(nav,original);
+  let editorText=EditorState.create({doc:original}).doc.toString();
+  assert.notEqual(editorText,original);
+  modal.app.workspace={getLeavesOfType:()=>[{view:{file:{path:'_本地管理/文章导航.md'},editor:{getValue:()=>editorText}}}]};
+  metadataCache.getFileCache=()=>({frontmatter:{title:'新标题',tags:['agent']}});
+  await modal.preview();assert.ok(modal.update,modal.message);
+  await modal.create();assert.match(modal.message,/导航已更新/);
+  const updated=await readFile(nav,'utf8');assert.match(updated,/新标题/);assert.doesNotMatch(updated,/(?<!\r)\n/);
+  editorText=EditorState.create({doc:updated}).doc.toString()+'\n真实未保存编辑';
+  await modal.preview();assert.equal(modal.plan,undefined);assert.match(modal.message,/未保存编辑/);
+  assert.equal(await readFile(nav,'utf8'),updated);
+});

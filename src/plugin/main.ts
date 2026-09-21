@@ -1,3 +1,4 @@
+import { contextManifest } from './learning-context';
 import { TESTED_DSH } from './versions';
 import { Plugin, MarkdownView, Notice, FileSystemAdapter, TFile, addIcon } from 'obsidian';
 import { join } from 'node:path';
@@ -311,6 +312,14 @@ export default class Deepsidian extends Plugin {
     return job;
   }
   persist() { return this.saveChange(); }
+  setDraftText(id:string,text:string) {
+    const chat=this.state.chats.find(c=>c.id===id);if(!chat)return;
+    (chat.draft??={text:''}).text=text;
+  }
+  previewContext(files:Attachment[]=[]) {
+    const chat=this.chat;if(!chat)throw Error('会话不存在');
+    return contextManifest(chat,this.source,files,this.state.settings.useMemory&&chat.useMemory!==false,0);
+  }
   async selectChat(id: string) {
     if (this.busy) throw Error('请等待当前操作结束后切换会话');
     if (!this.state.chats.some(chat => chat.id === id)) throw Error('会话不存在');
@@ -506,9 +515,11 @@ export default class Deepsidian extends Plugin {
       this.busy=false; this.activeRecall=undefined; this.activeManager=undefined; this.view?.refreshStatus();
       new Notice(`未发送，草稿已保留：${String(error)}`); return;
     }
+    const manifest=contextManifest(chat,source,attachments,!!this.activeRecall,prompt.length);
+    if(chat.draft)chat.draft={text:''};
     accepted?.();
     this.toolEvents = []; this.attempt = ''; this.committed = ''; this.reasoningAttempt = ''; this.reasoningCommitted = '';
-    chat.messages.push({ role: 'user', text: question, source: { ...this.activeSource }, attachments: attachments.map(f => f.name) });
+    chat.messages.push({ role: 'user', text: question, manifest, source: { ...this.activeSource }, attachments: attachments.map(f => f.name) });
     if (chat.messages.length === 1) chat.title = question.slice(0, 28);
     const answer: Message = { role: 'assistant', text: '', status: '生成中', trace: [traceEntry({type:'memory/snapshot',data:{enabled:!!this.activeRecall,revision:this.activeRecall?.snapshot.revision,index:this.activeRecall?.index??[],note:'仅记录提供给模型的索引；不代表模型已使用，正文读取见memory/read'}})], startedAt: Date.now() };
     chat.messages.push(answer); this.activeMessage = answer;

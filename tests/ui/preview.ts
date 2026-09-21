@@ -1,3 +1,4 @@
+import {checkLearning} from './learning-checks';
 import {DeepsidianSettings} from '../../src/plugin/settings';
 import { TESTED_DSH } from '../../src/plugin/versions';
 import { LearningView } from '../../src/plugin/view';
@@ -38,6 +39,8 @@ let memoryRules='# 整理规则\n仅保存用户明确表达的持久偏好。';
 let previewUndoAvailable=true;
 const plugin:any={
  memoryDrafts:new Map(),
+ previewContext(files:any[]=[]){return {historyMessages:this.chat.messages.length,inheritedMessages:this.chat.fork?.inheritedMessages??0,memoryEnabled:this.state.settings.useMemory&&this.chat.useMemory!==false,items:[...(this.source.path?[{kind:'note',label:this.source.path,chars:this.source.selection.length+this.source.nearby.length,hash:'synthetic-preview',text:JSON.stringify(this.source)}]:[]),...files.map(f=>({id:f.id,kind:f.image?'image':'attachment',label:f.name,chars:f.text?.length,bytes:f.image?3:undefined,hash:'synthetic-preview'}))]};},
+ setDraftText(id:string,text:string){const c=this.state.chats.find((c:Chat)=>c.id===id);if(c)(c.draft??={text:''}).text=text;},
  async setChatMemory(id:string,change:any){Object.assign(this.state.chats.find((c:Chat)=>c.id===id),change);},
  async setChatMemoryStart(id:string,mode:'now'|'all'){const current=this.state.chats.find((c:Chat)=>c.id===id);current.memoryStart=mode==='now'?{index:current.messages.length,key:'synthetic-preview'}:undefined;current.memoryPolicyVersion=(current.memoryPolicyVersion??0)+1;},
  memoryContributionPreview(id:string){const current=this.state.chats.find((c:Chat)=>c.id===id);const start=current.memoryStart?.index??0;return {start,sources:current.messages.flatMap((m:any,index:number)=>index>=start && m.role==='user'?[{index,text:m.text,key:`preview-${index}`}]:[]).slice(-20)};},
@@ -77,6 +80,7 @@ const view=new LearningView({app:plugin.app,container:document.getElementById('a
 await view.onOpen();
 if(screen==='history-tests') await checkHistory(document.body.createDiv());
 if(screen==='attachment-tests')await checkAttachments(view,plugin,document.body.createDiv());
+if(screen==='learning-tests')await checkLearning(plugin,plugin.view);
 if(screen==='memory-tests'){await checkMemoryControls(plugin,document.body.createDiv());await checkOrganizerControls(plugin,document.body.createDiv());}
 if(screen==='memory-session')new MemoryModal(plugin,'session').open();
 if(screen==='memory-maintenance'){const modal:any=new MemoryModal(plugin);modal.maintenanceOpen=true;modal.open();}
