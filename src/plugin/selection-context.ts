@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sourceRevision } from './source-revision.ts';
 import { safeNotePath } from './context.ts';
 
 export interface EditorPosition { line: number; ch: number; }
@@ -79,7 +79,7 @@ export function selectionContext(path: string, text: string, from: EditorPositio
   return Object.freeze({
     path, selection, nearby, heading: headingAt(lines, start.line),
     startLine: start.line + 1, endLine: lastLine + 1,
-    revision: createHash('sha256').update(text).digest('hex'), pinned: true,
+    revision: sourceRevision(text), pinned: true,
     truncated: selection.length < original.length || nearby.length < neighborhood.length || adjustedStart > offsets[Math.max(0, start.line - 12)],
   });
 }

@@ -1,6 +1,6 @@
 import {selectionContext} from './selection-context';
 import type {Editor, MarkdownFileInfo} from 'obsidian';
-import {contentHash} from './learning-context';
+import {matchesSourceRevision} from './source-revision';
 import { contextManifest } from './learning-context';
 import { TESTED_DSH } from './versions';
 import { Plugin, MarkdownView, Notice, FileSystemAdapter, TFile, addIcon } from 'obsidian';
@@ -77,7 +77,7 @@ export default class Deepsidian extends Plugin {
     if(!view.file||!this.chat)throw Error('请先打开 Markdown 笔记');
     const context=selectionContext(view.file.path,editor.getValue(),editor.getCursor('from'),editor.getCursor('to'));
     const chat=this.chat;
-    this.busy=true;
+    this.busy=true;this.view?.refreshStatus();
     try {
       await this.assertContained(context.path);
       await this.saveChange(saved=>{(saved.chats.find(c=>c.id===chat.id)!.draft??={text:''}).context=context;},()=>{(chat.draft??={text:''}).context=context;});
@@ -94,7 +94,7 @@ export default class Deepsidian extends Plugin {
     if(!file)throw Error('来源已移动或删除，请重新定位');
     let line=resolved.startLine??1;
     if(expected?.revision&&expected.path===resolved.path){
-      const same=contentHash(await this.readCurrent(file))===expected.revision;
+      const same=matchesSourceRevision(await this.readCurrent(file),expected.revision);
       if(!same)new Notice('来源已修改；当前打开的是最新正文，历史回答仍基于当时快照');
       else if(expected.startLine&&!link.includes('#'))line=expected.startLine;
     }
@@ -349,8 +349,11 @@ export default class Deepsidian extends Plugin {
   async selectChat(id: string) {
     if (this.busy) throw Error('请等待当前操作结束后切换会话');
     if (!this.state.chats.some(chat => chat.id === id)) throw Error('会话不存在');
-    await this.saveChange(draft => { draft.activeId = id; }, () => { this.state.activeId = id; });
-    this.source={...EMPTY_CONTEXT};this.capture();this.view?.refreshContext();
+    this.busy=true;this.view?.refreshStatus();
+    try {
+      await this.saveChange(draft => { draft.activeId = id; }, () => { this.state.activeId = id; });
+      this.source={...EMPTY_CONTEXT};this.capture();this.view?.refreshContext();
+    } finally {this.busy=false;this.view?.refreshStatus();}
   }
   async newChat() {
     if (this.busy) throw Error('请等待当前操作结束后新建对话');
@@ -547,6 +550,10 @@ export default class Deepsidian extends Plugin {
     }
     const manifest=contextManifest(chat,source,attachments,!!this.activeRecall,prompt.length);
     if(chat.draft)chat.draft={text:''};
+    if(source.pinned){
+      // The accepted request owns this snapshot; the next draft follows the live editor.
+      this.source={...EMPTY_CONTEXT};this.capture();this.view?.refreshContext();
+    }
     accepted?.();
     this.toolEvents = []; this.attempt = ''; this.committed = ''; this.reasoningAttempt = ''; this.reasoningCommitted = '';
     chat.messages.push({ role: 'user', text: question, manifest, source: { ...this.activeSource }, attachments: attachments.map(f => f.name) });

@@ -74,3 +74,17 @@ test('heading resolution preserves literal trailing hashes and strips only separ
   assert.equal(linkedExcerpt(text,'C#').content,'## C#\nC sharp content');
   assert.equal(linkedExcerpt(text,'F#').content,'## F# ###\nF sharp content');
 });
+
+test('resolved source revisions agree across editor LF and disk CRLF without hiding content changes',async()=>{
+  const entries={'note.md':{text:'# Topic\n\nparagraph'}};
+  const {tools}=host(entries);
+  const resolve=()=>tools.handle('obsidian_resolve',{link:'note.md#Topic'},'');
+  const editor=await resolve();
+  entries['note.md'].text=entries['note.md'].text.replace(/\n/g,'\r\n');
+  const disk=await resolve();
+  assert.equal(editor.revision,disk.revision);
+  assert.equal(editor.startLine,disk.startLine);
+  assert.equal(editor.content,disk.content);
+  entries['note.md'].text+=' changed';
+  assert.notEqual((await resolve()).revision,editor.revision);
+});

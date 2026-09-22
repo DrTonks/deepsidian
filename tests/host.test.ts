@@ -586,3 +586,55 @@ test('new and forked chats discard the previous composer pinned source',async()=
     assert.deepEqual(p.state.chats.find((chat:any)=>chat.id==='a').draft.context,context);
   }
 });
+
+test('a pending chat switch blocks selection preparation and always releases its lifecycle lock',async()=>{
+  for(const fail of [false,true]){
+    const p=new Deepsidian();
+    p.state.chats=[{id:'a',title:'A',messages:[],draft:{text:'A question'}},{id:'b',title:'B',messages:[],draft:{text:'B question'}}];p.state.activeId='a';
+    let release!:()=>void,entered!:()=>void;const gate=new Promise<void>(r=>release=r),waiting=new Promise<void>(r=>entered=r);
+    p.saveData=async()=>{entered();await gate;if(fail)throw Error('disk full');};
+    p.assertContained=async()=>{};p.open=async()=>{};
+    p.view={refreshChats:()=>{},refreshContext:()=>{},refreshStatus:()=>{},setQuestion:(text:string)=>p.setDraftText(p.chat.id,text)};
+    const switching=p.selectChat('b');const switched=fail?assert.rejects(switching,/disk full/):switching;
+    await waiting;
+    try{
+      assert.equal(p.busy,true);
+      await assert.rejects(()=>p.prepareSelection({getValue:()=> 'selection A',getCursor:()=>({line:0,ch:0})},{file:{path:'A.md'}}),/等待当前操作结束/);
+    }finally{release();await switched;}
+    assert.equal(p.busy,false);assert.equal(p.state.activeId,fail?'a':'b');
+    assert.equal(p.state.chats[0].draft.text,'A question');assert.equal(p.state.chats[1].draft.text,'B question');
+    assert.equal(p.state.chats[0].draft.context,undefined);assert.equal(p.state.chats[1].draft.context,undefined);
+  }
+});
+
+test('accepted selection snapshots are consumed even when no Markdown editor remains',async()=>{
+  const p=new Deepsidian();p.state.chats=[{id:'selection-once',title:'selection',messages:[]}];p.state.activeId='selection-once';
+  p.assertContained=async()=>{};p.open=async()=>{};
+  await p.prepareSelection({getValue:()=> '# Topic\nSNAPSHOT-ONCE',getCursor:(which:string)=>({line:1,ch:which==='from'?0:13})},{file:{path:'selected.md'}});
+  const snapshot=structuredClone(p.source),requests:string[]=[];
+  p.app.workspace.getActiveViewOfType=()=>null;p.app.workspace.getActiveFile=()=>null;
+  p.connect=async()=>({options:{model:'test'},prompt:async(_id:string,text:string)=>{requests.push(text);return {kind:'completed'};}});
+  await p.ask('first');
+  assert.deepEqual(p.chat.messages[0].source,snapshot);
+  assert.match(requests[0],/SNAPSHOT-ONCE/);
+  assert.equal(p.chat.draft.context,undefined);
+  assert.equal(p.source.path,'');assert.equal(p.previewContext([]).items.length,0);
+  await p.ask('second');
+  assert.doesNotMatch(requests[1],/SNAPSHOT-ONCE/);
+  assert.equal(p.chat.messages[2].source.path,'');
+});
+
+test('closed CRLF notes retain snapshot locations for current and legacy revisions',async()=>{
+  const {createHash}=await import('node:crypto');
+  const {selectionContext}=await import('../src/plugin/selection-context.ts');
+  const lf='# Heading\n\nselected paragraph',snapshot=selectionContext('note.md',lf,{line:2,ch:0},{line:2,ch:18});
+  const p=new Deepsidian(),file={path:'note.md'};let disk=lf.replace(/\n/g,'\r\n'),opened:any;
+  p.knowledge=async()=>({path:'note.md',startLine:1});
+  p.app={vault:{getFileByPath:()=>file,read:async()=>disk},workspace:{getActiveViewOfType:()=>null,getLeavesOfType:()=>[],getLeaf:()=>({openFile:async(_file:any,state:any)=>{opened=state;}})}};
+  for(const revision of [snapshot.revision,createHash('sha256').update(lf).digest('hex')]){
+    await p.openSource('note.md','',false,{...snapshot,revision});assert.equal(opened.eState.line,2);
+    await p.openSource('note.md#Heading','',false,{...snapshot,revision});assert.equal(opened.eState.line,0);
+  }
+  disk='# Changed\r\n\r\nselected paragraph';
+  await p.openSource('note.md','',false,snapshot);assert.equal(opened.eState.line,0);
+});

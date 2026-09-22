@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { selectionContext } from '../src/plugin/selection-context.ts';
+import { matchesSourceRevision } from '../src/plugin/source-revision.ts';
 
 test('selection snapshots normalize reverse multiline ranges and preserve CRLF', () => {
   const text = '# Topic\r\nfirst line\r\nsecond line\r\nlast';
@@ -10,8 +11,23 @@ test('selection snapshots normalize reverse multiline ranges and preserve CRLF',
   assert.equal(forward.selection, 'line\r\nsecond');
   assert.equal(forward.startLine, 2); assert.equal(forward.endLine, 3);
   assert.equal(forward.heading, 'Topic');
-  assert.equal(forward.revision, createHash('sha256').update(text).digest('hex'));
+  assert.equal(forward.revision, 'sha256-lf:' + createHash('sha256').update(text.replace(/\r\n/g, '\n')).digest('hex'));
   assert.ok(Object.isFrozen(forward)); assert.equal(forward.pinned, true);
+});
+
+test('source revisions tolerate editor/disk line endings and legacy hashes but reject changed text', () => {
+  const lf = '# Topic\n\nselected paragraph\n';
+  const crlf = lf.replace(/\n/g, '\r\n');
+  const capture = (text: string) => selectionContext('a.md', text, {line:2,ch:0}, {line:2,ch:18});
+  const revisions = [capture(lf).revision, capture(crlf).revision,
+    ...[lf, crlf].map(text => createHash('sha256').update(text).digest('hex'))];
+  assert.equal(capture(lf).revision, capture(crlf).revision);
+  for (const revision of revisions) {
+    assert.equal(matchesSourceRevision(lf, revision), true);
+    assert.equal(matchesSourceRevision(crlf, revision), true);
+    assert.equal(matchesSourceRevision(lf.replace('paragraph', 'replacement'), revision), false);
+    assert.equal(matchesSourceRevision('\n' + lf, revision), false);
+  }
 });
 
 test('heading capture excludes frontmatter and fenced code, respects fence marker and length', () => {
