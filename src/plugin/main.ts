@@ -1,3 +1,6 @@
+import {selectionContext} from './selection-context';
+import type {Editor, MarkdownFileInfo} from 'obsidian';
+import {contentHash} from './learning-context';
 import { contextManifest } from './learning-context';
 import { TESTED_DSH } from './versions';
 import { Plugin, MarkdownView, Notice, FileSystemAdapter, TFile, addIcon } from 'obsidian';
@@ -69,15 +72,36 @@ export default class Deepsidian extends Plugin {
   async knowledge(name:string,args:Record<string,unknown>,source=this.source.path){
     return new KnowledgeTools(this.app,path=>this.assertContained(path),file=>this.readCurrent(file)).handle(name,args,source);
   }
-  async openSource(link:string,source='',newLeaf=false){
+  async prepareSelection(editor:Editor,view:MarkdownFileInfo) {
+    if(this.busy)throw Error('请等待当前操作结束后选择新的提问来源');
+    if(!view.file||!this.chat)throw Error('请先打开 Markdown 笔记');
+    const context=selectionContext(view.file.path,editor.getValue(),editor.getCursor('from'),editor.getCursor('to'));
+    const chat=this.chat;
+    this.busy=true;
+    try {
+      await this.assertContained(context.path);
+      await this.saveChange(saved=>{(saved.chats.find(c=>c.id===chat.id)!.draft??={text:''}).context=context;},()=>{(chat.draft??={text:''}).context=context;});
+      this.includeContext=true;this.source={...context};
+      await this.open();
+      this.view?.refreshChats();this.view?.setQuestion(chat.draft!.text||'请结合选中的内容和所在段落，解释我需要理解的概念。');
+    } finally {this.busy=false;this.view?.refreshStatus();}
+  }
+  clearPinnedContext(){if(this.busy)throw Error('请等待当前操作结束');if(this.source.pinned)this.source={...EMPTY_CONTEXT};if(this.chat?.draft){delete this.chat.draft.context;void this.persist().catch(()=>new Notice('选区移除未能保存，当前会话已移除；请重试保存后退出'));}}
+  async openSource(link:string,source='',newLeaf=false,expected?:NoteContext){
     const base=link.toLowerCase().endsWith('.base');
     const resolved=await this.knowledge(base?'obsidian_base':'obsidian_resolve',base?{path:link}:{link,source},source) as {path:string;startLine?:number;endLine?:number};
     const file=this.app.vault.getFileByPath(resolved.path);
     if(!file)throw Error('来源已移动或删除，请重新定位');
+    let line=resolved.startLine??1;
+    if(expected?.revision&&expected.path===resolved.path){
+      const same=contentHash(await this.readCurrent(file))===expected.revision;
+      if(!same)new Notice('来源已修改；当前打开的是最新正文，历史回答仍基于当时快照');
+      else if(expected.startLine&&!link.includes('#'))line=expected.startLine;
+    }
     const leaf=this.app.workspace.getLeaf(newLeaf?'tab':false);
-    await leaf.openFile(file,{eState:{line:Math.max(0,(resolved.startLine??1)-1)}});
-    if(leaf.view instanceof MarkdownView && resolved.startLine){
-      const from={line:resolved.startLine-1,ch:0};
+    await leaf.openFile(file,{eState:{line:Math.max(0,line-1)}});
+    if(leaf.view instanceof MarkdownView){
+      const from={line:Math.max(0,line-1),ch:0};
       leaf.view.editor.setCursor(from);leaf.view.editor.scrollIntoView({from,to:from},true);
     }
   }
@@ -146,12 +170,14 @@ export default class Deepsidian extends Plugin {
     this.addCommand({ id: 'open', name: '打开学习侧栏', callback: () => void this.open() });
     this.addCommand({id:'catalog',name:'整理文章目录',callback:()=>new CatalogModal(this).open()});
     this.addCommand({id:'context',name:'预览来源与关联笔记',callback:()=>new SourcesModal(this).open()});
-    this.addCommand({ id: 'explain-selection', name: '解释选中的术语', editorCallback: (editor, view) => {
-      this.includeContext = true;
-      if (view instanceof MarkdownView) this.capture(view);
-      const question = editor.getSelection().trim() ? `解释这段内容：${editor.getSelection().slice(0, 2000)}` : '请解释当前段落里最需要理解的概念。';
-      void this.open().then(() => this.view?.setQuestion(question));
+    this.addCommand({ id: 'explain-selection', name: '围绕选区或当前段落提问', editorCallback: (editor, view) => {
+      void this.prepareSelection(editor,view).catch(error=>new Notice(String(error)));
     } });
+    this.registerEvent(this.app.workspace.on('editor-menu',(menu,editor,view)=>{
+      menu.addItem(item=>item.setTitle('向 Deepsidian 提问').setIcon('message-circle').onClick(()=>{
+        void this.prepareSelection(editor,view).catch(error=>new Notice(String(error)));
+      }));
+    }));
     this.registerEvent(this.app.workspace.on('active-leaf-change', () => {
       this.memoryActivity();
       const current = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -324,6 +350,7 @@ export default class Deepsidian extends Plugin {
     if (this.busy) throw Error('请等待当前操作结束后切换会话');
     if (!this.state.chats.some(chat => chat.id === id)) throw Error('会话不存在');
     await this.saveChange(draft => { draft.activeId = id; }, () => { this.state.activeId = id; });
+    this.source={...EMPTY_CONTEXT};this.capture();this.view?.refreshContext();
   }
   async newChat() {
     if (this.busy) throw Error('请等待当前操作结束后新建对话');
@@ -333,6 +360,7 @@ export default class Deepsidian extends Plugin {
     try {
       await this.saveChange(draft => { draft.chats.unshift(chat); draft.activeId = chat.id; },
         () => { this.state.chats.unshift(chat); this.state.activeId = chat.id; });
+      this.source={...EMPTY_CONTEXT};this.capture();this.view?.refreshContext();
       this.toolEvents = [];
     } catch (error) { throw Error(`新建会话保存失败：${String(error)}`); }
     finally {
@@ -356,6 +384,7 @@ export default class Deepsidian extends Plugin {
       await client.fork(parent.id, chat.id, answer.forkSeq!);
       await this.saveChange(draft => { draft.chats.unshift(chat); draft.activeId = chat.id; },
         () => { this.state.chats.unshift(chat); this.state.activeId = chat.id; });
+      this.source={...EMPTY_CONTEXT};this.capture();this.view?.refreshContext();
       this.toolEvents = []; this.lastUsed = Date.now();
     } finally {
       this.busy = false; this.creatingFork = false;
@@ -401,6 +430,7 @@ export default class Deepsidian extends Plugin {
   detach(view: LearningView) { if (this.view === view) this.view = undefined; }
   capture(view: MarkdownView | null = this.app.workspace.getActiveViewOfType(MarkdownView) ?? this.lastMarkdown ?? null) {
     if (!this.includeContext) return;
+    if(this.chat?.draft?.context){this.source={...this.chat.draft.context};return;}
     const active=this.app.workspace.getActiveFile?.();
     if(active?.extension==='base'){this.source={path:active.path,selection:'',nearby:'当前是Bases管理配置；用obsidian_base读取配置，用obsidian_query按支持的属性筛选实际文章，不能把配置当成已求值表格。'};return;}
     if (!view?.file) return;

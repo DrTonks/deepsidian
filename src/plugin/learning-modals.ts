@@ -11,7 +11,7 @@ export class ComposerContextModal extends Modal {
     const el=this.contentEl;el.empty();el.addClass('ds-memory-modal');this.modalEl.addClass('ds-memory-dialog');
     el.createEl('h2',{text:'下次发送的上下文'});
     const manifest=this.plugin.previewContext(this.view.pendingFiles());
-    el.createEl('p',{text:'这是当前预览。发送时会重新捕获笔记并保存实际清单；工具随后读取的内容见运行轨迹。字符数不等于 token 或费用。'});
+    el.createEl('p',{text:'这是当前预览。手动选区使用已保存的快照，普通当前笔记在发送时重新捕获；同时保存实际清单；工具随后读取的内容见运行轨迹。字符数不等于 token 或费用。'});
     el.createEl('p',{text:`已有 ${manifest.historyMessages} 条界面消息，其中 ${manifest.inheritedMessages} 条来自分支继承。移除下面的资料不会擦除历史中已发送的内容；完整历史不保证每轮原样进入模型窗口。`});
     const note=(title:string,text:string)=>{const detail=el.createEl('details');detail.createEl('summary',{text:title});detail.createEl('pre',{text,cls:'ds-proposal-text'});return detail;};
     if(this.plugin.source.path){

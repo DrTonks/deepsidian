@@ -98,7 +98,9 @@ export class LearningView extends ItemView {
       const href=link.getAttribute('data-href')??link.getAttribute('href');if(!href)return;
       event.preventDefault();event.stopPropagation();
       const source=link.closest<HTMLElement>('.ds-message')?.dataset.sourcePath??'';
-      void this.plugin.openSource(href,source,event.metaKey||event.ctrlKey).catch(error=>new Notice(String(error)));
+      const index=Number(link.closest<HTMLElement>('.ds-message')?.dataset.messageIndex);
+      const expected=Number.isSafeInteger(index)?this.plugin.chat?.messages.slice(0,index+1).reverse().find(m=>m.role==='user')?.source:undefined;
+      void this.plugin.openSource(href,source,event.metaKey||event.ctrlKey,expected).catch(error=>new Notice(String(error)));
     },true);
     this.toolsEl = root.createEl('details', { cls: 'ds-tools' });
     const composer = root.createDiv('ds-composer');
@@ -128,7 +130,7 @@ export class LearningView extends ItemView {
       const chatId=this.plugin.chat?.id;
       new VaultPicker(this.app, file => { void this.addVaultFile(file,chatId).catch(error=>new Notice(String(error))); }).open();
     });
-    this.iconButton(actions, 'text-cursor-input', '使用当前选区', () => { this.plugin.includeContext = true; this.plugin.capture(); this.refreshContext(); });
+    this.iconButton(actions, 'text-cursor-input', '使用当前选区', () => { if(this.plugin.busy){new Notice('请等待当前操作结束');return;}this.plugin.clearPinnedContext(); this.plugin.includeContext = true; this.plugin.capture(); this.refreshContext(); });
     this.iconButton(actions, 'list-checks', '查看下次发送的上下文', () => { this.plugin.capture();this.refreshContext();new ComposerContextModal(this.plugin,this).open(); });
     this.modelSelect = actions.createEl('select', { cls: 'ds-model', attr: { 'aria-label': '模型' } });
     this.modelSelect.onchange = () => { const [provider, model] = this.modelSelect.value.split('\n'); void this.changeRoute({ provider, model, reasoningEffort: '' }); };
@@ -156,7 +158,7 @@ export class LearningView extends ItemView {
   }
   pendingFiles(){return [...this.attachments];}
   removePendingFile(id:string){if(this.preparingAttachments||this.plugin.busy)throw Error('请等待当前操作结束');this.attachments=this.attachments.filter(a=>a.id!==id);this.renderAttachments();}
-  removeCurrentContext(){if(this.plugin.busy)throw Error('请等待当前操作结束');this.plugin.includeContext=false;this.plugin.source={...EMPTY_CONTEXT};this.refreshContext();}
+  removeCurrentContext(){if(this.plugin.busy)throw Error('请等待当前操作结束');this.plugin.clearPinnedContext();this.plugin.includeContext=false;this.plugin.source={...EMPTY_CONTEXT};this.refreshContext();}
   private chooseCommand(name:string){this.input.value=`/${name} `;this.saveDraftText();this.commandMenu.hidden=true;this.input.removeAttribute('aria-activedescendant');this.input.focus();}
   private renderCommands(){
     const matches=commandMatches(this.input.value);this.commandMenu.empty();this.commandMenu.hidden=!matches.length;
@@ -302,8 +304,10 @@ export class LearningView extends ItemView {
     });
     file.setAttribute('aria-label',`查看本次编辑上下文：${this.plugin.source.path}`);
     chip.createSpan({ text: this.plugin.source.path.split('/').pop() ?? this.plugin.source.path, attr: { title: this.plugin.source.path } });
-    this.iconButton(chip, 'x', '移除当前文件', () => { this.plugin.includeContext = false; this.plugin.source = { ...EMPTY_CONTEXT }; this.refreshContext(); });
-    this.contextEl.createEl('pre', { text: this.plugin.source.selection || this.plugin.source.nearby, attr: { hidden: '' } });
+    this.iconButton(chip, 'x', '移除当前文件', () => { try{this.removeCurrentContext();}catch(error){new Notice(String(error));} });
+    const source=this.plugin.source;
+    if(source.pinned)chip.createSpan({text:`选区快照${source.startLine?' · 行 '+source.startLine+'–'+source.endLine:''}`,cls:'ds-muted'});
+    this.contextEl.createEl('pre', { text: [source.heading?'标题：'+source.heading:'',source.selection,source.nearby,source.truncated?'片段已截断':''].filter(Boolean).join('\n\n'), attr: { hidden: '' } });
   }
   refreshStatus() {
     if (!this.statusEl) return;
@@ -348,7 +352,7 @@ export class LearningView extends ItemView {
       const card = this.messages.createDiv(`ds-message ds-${message.role}`);
       card.dataset.sourcePath=sourcePath;card.dataset.messageIndex=String(messageIndex);
       card.createDiv({ cls: 'ds-label', text: message.role === 'user' ? '你' : `Deepsidian${message.model ? ' · ' + message.model : ''}${message.status ? ' · ' + message.status : ''}` });
-      if (message.source?.path) card.createEl('button', { cls: 'ds-source', text: message.source.path }).onclick = () => { void this.plugin.openSource(message.source!.path).catch(error=>new Notice(String(error))); };
+      if (message.source?.path) card.createEl('button', { cls: 'ds-source', text: message.source.path }).onclick = () => { void this.plugin.openSource(message.source!.path,'',false,message.source).catch(error=>new Notice(String(error))); };
       if(message.manifest){
         const manifest=message.manifest,detail=card.createEl('details',{cls:'ds-context-manifest'});
         detail.createEl('summary',{text:'发送时上下文清单'});

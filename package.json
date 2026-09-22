@@ -10,7 +10,7 @@
     "build": "npm run typecheck && node scripts/build.mjs",
     "install:dev": "node scripts/install.mjs",
     "doctor": "node scripts/doctor.ts",
-    "test": "node --test tests/core.test.ts tests/trace.test.ts tests/memory.test.ts tests/manage.test.ts tests/host.test.ts tests/discovery.test.ts tests/scheduler.test.ts tests/catalog.test.ts tests/catalog-host.test.ts tests/knowledge.test.ts",
+    "test": "node --test tests/core.test.ts tests/trace.test.ts tests/memory.test.ts tests/manage.test.ts tests/host.test.ts tests/discovery.test.ts tests/scheduler.test.ts tests/catalog.test.ts tests/catalog-host.test.ts tests/knowledge.test.ts tests/selection-context.test.ts",
     "test:integration": "node --test tests/runtime.test.ts tests/web.test.ts tests/messages.test.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "live": "node scripts/live.ts",
@@ -20,7 +20,8 @@
     "eval:memory": "node scripts/eval-memory.ts",
     "live:manage": "node scripts/live-manage.ts",
     "live:knowledge": "node scripts/live-knowledge.ts",
-    "live:fork": "node scripts/live-fork.ts"
+    "live:fork": "node scripts/live-fork.ts",
+    "live:selection": "node scripts/live-selection.ts"
   },
   "devDependencies": {
     "@types/node": "22.20.2",
@@ -28,7 +29,7 @@
     "obsidian": "1.13.1",
     "typescript": "7.0.2"
   },
-  "version": "0.6.5",
+  "version": "0.6.6",
   "description": "An Obsidian sidebar powered by a local DeepSeek Harness runtime.",
   "license": "MIT"
 }

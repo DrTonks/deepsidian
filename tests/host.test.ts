@@ -8,7 +8,7 @@ await mkdir('.runs',{recursive:true});const dir=await mkdtemp(resolve('.runs/hos
 const outfile=join(dir,'host.mjs');
 await build({stdin:{contents:"export {default} from './src/plugin/main.ts'; export {DshClient} from './src/plugin/dsh.ts'; export {FileSystemAdapter,MarkdownView} from 'obsidian';",resolveDir:process.cwd()},outfile,bundle:true,platform:'node',format:'esm',alias:{obsidian:resolve('tests/host-obsidian.ts')}});
 const {default:Base,DshClient,FileSystemAdapter,MarkdownView}=await import(pathToFileURL(outfile).href);
-class Deepsidian extends Base { constructor(){super();this.state.settings.useMemory=false;} }
+class Deepsidian extends Base { constructor(){super();this.state.settings.useMemory=false;this.app.workspace.getActiveViewOfType=()=>null;} }
 
 test('knowledge output respects per-result/turn budgets and cancelled or replaced turns',async()=>{
   const p=new Deepsidian();p.busy=true;p.activeMessage={};
@@ -506,7 +506,7 @@ test('drafts survive persistence independently; abandoned return fields never en
   p.state.chats=[{id:'parent',title:'main',messages:[]},{id:'child',title:'branch',messages:[]}];p.state.activeId='parent';
   p.setDraftText('parent','parent draft');p.setDraftText('child','child draft');
   let saved:any;p.saveData=async(value:any)=>{saved=structuredClone(value);};await p.persist();
-  const restored=new Deepsidian();restored.state=saved;
+  const restored=new Deepsidian();restored.state=saved;restored.capture=()=>{};
   assert.equal(restored.chat.draft.text,'parent draft');await restored.selectChat('child');assert.equal(restored.chat.draft.text,'child draft');
   p.chat.draft.conclusions=[{text:'REMOVED-RETURN-FEATURE'}];
   let request='';p.connect=async()=>({options:{model:'test'},prompt:async(_id:string,text:string)=>{request=text;return {kind:'completed'};}});
@@ -514,4 +514,75 @@ test('drafts survive persistence independently; abandoned return fields never en
   assert.doesNotMatch(request,/REMOVED-RETURN-FEATURE/);
   assert.equal(p.chat.messages[0].manifest.items.length,1);assert.equal(p.chat.messages[0].manifest.promptChars,request.length);
   assert.equal(p.chat.draft.text,'');assert.equal(p.state.chats[1].draft.text,'child draft');
+});
+
+test('selection preparation preserves an existing draft, persists its snapshot, and never sends a model request',async()=>{
+  const p=new Deepsidian();p.state.chats=[{id:'a',title:'a',messages:[],draft:{text:'我的问题'}}];p.state.activeId='a';
+  const text='# Attention\n\nKV cache stores keys and values.';
+  const editor={getValue:()=>text,getCursor:(which:string)=>({line:2,ch:which==='from'?0:8})};
+  let opened=0,sent=0,saved:any,question='';p.assertContained=async()=>{};
+  p.open=async()=>{opened++;};p.connect=async()=>{sent++;throw Error('unexpected model request');};
+  p.saveData=async(value:any)=>{saved=structuredClone(value);};
+  p.view={refreshChats:()=>{},setQuestion:(value:string)=>{question=value;},refreshStatus:()=>{}};
+  await p.prepareSelection(editor,{file:{path:'notes/attention.md'}});
+  assert.equal(p.chat.draft.text,'我的问题');assert.equal(question,'我的问题');assert.equal(p.source.selection,'KV cache');
+  assert.equal(p.source.heading,'Attention');assert.equal(p.source.pinned,true);
+  assert.deepEqual(saved.chats[0].draft.context,p.source);assert.equal(opened,1);assert.equal(sent,0);assert.equal(p.busy,false);
+});
+
+test('failed selection preparation preserves the previous source and draft and does not open the sidebar',async()=>{
+  for(const fail of ['path','save']){
+    const p=new Deepsidian(),draft={text:'原问题',context:{path:'old.md',selection:'old',nearby:'',pinned:true}};
+    p.state.chats=[{id:'a',title:'a',messages:[],draft}];p.state.activeId='a';p.source={...draft.context};
+    const before=structuredClone(p.source);let opened=0;
+    p.assertContained=async()=>{if(fail==='path')throw Error('outside vault');};
+    p.saveData=async()=>{if(fail==='save')throw Error('disk full');};p.open=async()=>{opened++;};
+    const editor={getValue:()=> 'new',getCursor:()=>({line:0,ch:0})};
+    await assert.rejects(()=>p.prepareSelection(editor,{file:{path:'new.md'}}),fail==='path'?/outside vault/:/disk full/);
+    assert.deepEqual(p.source,before);assert.equal(p.chat.draft,draft);assert.equal(opened,0);assert.equal(p.busy,false);
+  }
+});
+
+test('pinned selections survive note changes but stay scoped to their own chat',async()=>{
+  const p=new Deepsidian(),a={path:'a.md',selection:'A snapshot',nearby:'',pinned:true},b={path:'b.md',selection:'B snapshot',nearby:'',pinned:true};
+  p.state.chats=[{id:'a',title:'a',messages:[],draft:{text:'a?',context:a}},{id:'b',title:'b',messages:[],draft:{text:'b?',context:b}},{id:'c',title:'c',messages:[]}];p.state.activeId='a';
+  p.app.workspace.getActiveViewOfType=()=>null;p.app.workspace.getActiveFile=()=>null;
+  p.capture({file:{path:'unrelated.md'},editor:{getSelection:()=>{throw Error('must not read unrelated editor');}}});
+  assert.deepEqual(p.source,a);await p.selectChat('b');assert.deepEqual(p.source,b);
+  await p.selectChat('c');assert.equal(p.source.path,'');await p.selectChat('a');assert.deepEqual(p.source,a);
+});
+
+test('source navigation reuses a saved line only when the current editor revision matches',async()=>{
+  const {createHash}=await import('node:crypto');const p=new Deepsidian();let current='# Header\n\noriginal',opened:any,cursor:any;
+  const file={path:'note.md'},revision=createHash('sha256').update(current).digest('hex');
+  const view=Object.assign(new MarkdownView(),{file,editor:{getValue:()=>current,setCursor:(value:any)=>{cursor=value;},scrollIntoView:()=>{}}});
+  p.knowledge=async()=>({path:'note.md',startLine:1});
+  p.app={vault:{getFileByPath:()=>file},workspace:{getActiveViewOfType:()=>view,getLeavesOfType:()=>[],getLeaf:()=>({view,openFile:async(_file:any,state:any)=>{opened=state;}})}};
+  const expected={path:'note.md',selection:'original',nearby:'',revision,startLine:3,endLine:3};
+  await p.openSource('note.md','',false,expected);assert.equal(opened.eState.line,2);assert.equal(cursor.line,2);
+  for(const link of ['note.md#Header','note.md#^block']){
+    await p.openSource(link,'',false,expected);assert.equal(opened.eState.line,0);assert.equal(cursor.line,0);
+  }
+  current='# Changed\nnew paragraph\n\noriginal';await p.openSource('note.md','',false,expected);
+  assert.equal(opened.eState.line,0);assert.equal(cursor.line,0);
+});
+
+test('preparing a selection cannot overwrite newer text typed while the path check is pending',async()=>{
+  const p=new Deepsidian();p.state.chats=[{id:'a',title:'a',messages:[],draft:{text:'first draft'}}];p.state.activeId='a';
+  let release!:()=>void;p.assertContained=()=>new Promise<void>(resolve=>{release=resolve;});p.open=async()=>{};
+  let rendered='';p.view={refreshChats:()=>{},setQuestion:(text:string)=>{rendered=text;},refreshStatus:()=>{}};
+  const pending=p.prepareSelection({getValue:()=> 'paragraph',getCursor:()=>({line:0,ch:0})},{file:{path:'note.md'}});
+  p.setDraftText('a','newer draft');release();await pending;
+  assert.equal(p.chat.draft.text,'newer draft');assert.equal(rendered,'newer draft');assert.equal(p.chat.draft.context.path,'note.md');
+});
+
+test('new and forked chats discard the previous composer pinned source',async()=>{
+  for(const kind of ['new','fork']){
+    const p=new Deepsidian(),context={path:'old.md',selection:'old snapshot',nearby:'',pinned:true};
+    p.state.chats=[{id:'a',title:'a',draft:{text:'question',context},messages:[{role:'assistant',text:'answer',status:'完成',forkSeq:2}]}];p.state.activeId='a';p.source={...context};
+    p.connect=async()=>({fork:async()=>{}});
+    if(kind==='new')await p.newChat();else await p.forkChat(0);
+    assert.notEqual(p.chat.id,'a');assert.equal(p.source.path,'');assert.equal(p.chat.draft?.context,undefined);
+    assert.deepEqual(p.state.chats.find((chat:any)=>chat.id==='a').draft.context,context);
+  }
 });

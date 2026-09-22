@@ -1,4 +1,4 @@
-export interface NoteContext { path: string; selection: string; nearby: string; }
+export interface NoteContext { path: string; selection: string; nearby: string; heading?:string; startLine?:number; endLine?:number; revision?:string; pinned?:boolean; truncated?:boolean; }
 export const EMPTY_CONTEXT: NoteContext = { path: '', selection: '', nearby: '' };
 // Legacy background remains on disk for a future explicit migration, but is no
 // longer injected after its editor was removed. Do not silently reuse it.
