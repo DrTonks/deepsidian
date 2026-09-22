@@ -7,6 +7,7 @@ export class Plugin {
   manifest={id:'deepsidian'};
   saved:any=null;
   async loadData(){return this.saved;} async saveData(_data:any){}
+  addStatusBarItem(){return {style:{},textContent:'',setAttribute(){}};}
   registerEditorExtension(){} registerView(){} addRibbonIcon(){} addCommand(){} registerEvent(){} addSettingTab(){} registerInterval(){}
 }
 export class Component {}

@@ -83,10 +83,24 @@ export function completionContext(state:EditorState,title:string):CompletionInpu
   return {prefix:state.doc.sliceString(Math.max(0,at-3000),at),suffix:state.doc.sliceString(at,Math.min(state.doc.length,at+1000)),title:title.slice(0,200)};
 }
 
+function endsProseBlock(input:CompletionInput):boolean {
+  if(!input.suffix.trim())return true;
+  const next=/^[ \t]*\r?\n([^\r\n]*)/.exec(input.suffix);
+  if(!next)return false;
+  let line=next[1]!;
+  const inQuote=/^[ \t]*>/.test(input.prefix.split('\n').at(-1)??'');
+  // Quoted paragraphs may omit > on soft-wrapped continuation lines. Strip
+  // explicit quote markers so an empty quoted line still ends the paragraph.
+  if(inQuote)line=line.replace(/^(?:[ \t]*>[ \t]?)+/,'');
+  return !line.trim()||/^[ \t]*(?:(?:[-+*]|\d+[.)])\s|>\s?|#{1,6}(?:\s|$)|`{3,}|~{3,}|(?:-{3,}|_{3,}|\*{3,})[ \t]*$)/.test(line);
+}
+
 /** Finalize once before display; accepting a candidate never rewrites its text. */
 export function normalizeCompletion(text:string,input?:CompletionInput):string|null {
   const result=text;
   if(!result.trim()||/[\n\r\u2028\u2029\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(result)||result.includes('```')||result.length>500)return null;
   if(input&&((/[A-Za-z0-9]$/.test(input.prefix)&&/^[A-Za-z0-9]/.test(result))||(/[A-Za-z0-9]$/.test(result)&&/^[A-Za-z0-9]/.test(input.suffix))))return null;
+  // A new paragraph/list item cannot finish the candidate's dangling clause.
+  if(input&&endsProseBlock(input)&&/[,;，；]\s*$/.test(result))return null;
   return result;
 }

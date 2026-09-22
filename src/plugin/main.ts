@@ -39,6 +39,12 @@ export default class Deepsidian extends Plugin {
   private completionExtension?:ReturnType<typeof createCompletionExtension>;
   private completionAbort?:AbortController;
   private completionPending=false;
+  private completionStatusEl?:HTMLElement;
+  private setCompletionStatus(text='') {
+    if(!this.completionStatusEl)return;
+    this.completionStatusEl.textContent=text;
+    this.completionStatusEl.style.display=text?'':'none';
+  }
   private completionSettingsPending=0;
   private completionGeneration=0;
   completionEnabled(path?:string) {
@@ -48,6 +54,7 @@ export default class Deepsidian extends Plugin {
     this.completionGeneration++;
     this.completionExtension?.cancelAll();
     this.completionAbort?.abort();
+    this.setCompletionStatus();
   }
   async setCompletion(patch:Partial<Pick<Settings,'completionEnabled'|'completionExcluded'>>) {
     this.cancelCompletion();this.completionSettingsPending++;
@@ -66,11 +73,13 @@ export default class Deepsidian extends Plugin {
     signal.throwIfAborted();
     const generation=this.completionGeneration;
     const controller=new AbortController();this.completionAbort=controller;this.completionPending=true;
-    const abort=()=>controller.abort();signal.addEventListener('abort',abort,{once:true});
+    const abort=()=>{controller.abort();this.setCompletionStatus();};signal.addEventListener('abort',abort,{once:true});
     const check=()=>{controller.signal.throwIfAborted();if(generation!==this.completionGeneration||!this.completionEnabled())throw Error('补全已关闭');};
     this.lastUsed=Date.now();this.memoryActivity();
+    this.setCompletionStatus('补全：正在连接…');
     try {
       const client=await this.connect();check();
+      this.setCompletionStatus('补全：生成中 · Esc 取消');
       let reserved:ReturnType<typeof reserveCompletion>;
       // Reserve durably before dispatch; cancellation after reservation still consumes a slot.
       await this.saveChange(draft=>{check();reserved=reserveCompletion(draft.completionBudget);draft.completionBudget=reserved;},()=>{this.state.completionBudget=reserved;});
@@ -79,6 +88,7 @@ export default class Deepsidian extends Plugin {
       return result;
     } finally {
       signal.removeEventListener('abort',abort);this.completionPending=false;
+      this.setCompletionStatus();
       if(this.completionAbort===controller)this.completionAbort=undefined;
       this.lastUsed=Date.now();
     }
@@ -191,6 +201,10 @@ export default class Deepsidian extends Plugin {
     if (!this.chat) await this.newChat();
     // Connect only after Obsidian has restored its layout; do not block onload.
     for (const chat of this.state.chats) for (const message of chat.messages) if (message.status === '生成中') message.status = '上次运行被中断';
+    this.completionStatusEl=this.addStatusBarItem();
+    this.setCompletionStatus();
+    this.completionStatusEl.setAttribute('role','status');
+    this.completionStatusEl.setAttribute('aria-live','polite');
     this.completionExtension=createCompletionExtension({enabled:path=>this.completionEnabled(path),complete:(input,signal)=>this.completeNote(input,signal),report:message=>new Notice(message),shown:()=>this.completionMetric('shown'),accepted:()=>this.completionMetric('accepted')});
     this.registerEditorExtension(this.completionExtension.extension);
     this.addCommand({id:'complete-note',name:'请求当前位置补全（实验）',editorCallback:(editor)=>{

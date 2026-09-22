@@ -57,7 +57,7 @@ test('completion bridge rejects non-success terminals and keeps slot during canc
         options.signal.throwIfAborted();
       }
       yield { type: 'reasoning-delta', text: 'DO NOT DISPLAY' };
-      yield { type: 'text-delta', text: mode === 'empty' ? ' ' : mode === 'marker' ? '  <NO_COMPLETION>  ' : '候选' };
+      yield { type: 'text-delta', text: JSON.stringify({text: mode === 'empty' ? ' ' : mode === 'marker' ? '' : '候选'}) };
       if (mode !== 'missing') yield { type: 'finish', reason: { kind: ['empty', 'marker'].includes(mode) ? 'stop' : mode } };
     } }),
   } };
@@ -80,6 +80,25 @@ test('completion bridge rejects non-success terminals and keeps slot during canc
   assert.equal(replies.some(r => r.id === 'held'), false);
   release(); await pause(0);
   assert.ok(replies.find(r => r.id === 'held').value.error);
+  await bridge.dispose();
+});
+
+test('completion JSON preserves spaces and quotes and rejects malformed envelopes without retry',async()=>{
+  let raw='';let streams=0;
+  const ctx={llm:{resolveModelInfo:async()=>({reasoning:{efforts:[{id:'off'}]}}),prepareCall:async(config:object)=>({config,async *stream(){
+    streams++;
+    for(const text of [raw.slice(0,5),raw.slice(5)])yield {type:'text-delta',text};
+    yield {type:'finish',reason:{kind:'stop'}};
+  }})}};
+  let respond!:(value:any)=>void;
+  const bridge=completionBridge(ctx,(value:unknown)=>value,(_id:string,value:unknown)=>respond(value));
+  const call=async(value:string)=>{raw=value;const done=new Promise<any>(resolve=>{respond=resolve;});bridge.handle({method:'deepsidian/completion',params:{requestId:'test',input}});return done;};
+  for(const text of [' inserted ', 'quote "value" and \\ path', '', '  ']){
+    const result=await call(JSON.stringify({text}));assert.equal(result.result.text,text.trim()?text:'');
+  }
+  for(const value of ['plain text','<NO_COMPLETION>','{"text":"partial','null','[]','{"text":5}','{"other":"value"}','{"text":"valid","explanation":"no"}','```json\n{"text":"x"}\n```']){
+    const before=streams;const result=await call(value);assert.match(result.error.message,/格式无效/);assert.equal(streams,before+1);
+  }
   await bridge.dispose();
 });
 
@@ -128,7 +147,7 @@ for (const protocol of ['chat-completions', 'messages']) test(`real DSH ${protoc
       assert.match(JSON.stringify(data.messages), /缓存可以/);
       assert.doesNotMatch(JSON.stringify(data), /CHAT-QUESTION/);
       if (mode === 'error') { res.writeHead(429); res.end('{"error":{"message":"synthetic rate limit"}}'); return; }
-      emit(res, mode === 'marker' ? '<NO_COMPLETION>' : '减少重复计算', mode, mode !== 'hold');
+      emit(res, JSON.stringify({text: mode === 'marker' ? '' : '减少重复计算'}), mode, mode !== 'hold');
       if (mode === 'hold') held();
     } catch (error) { errors.push(error); res.writeHead(500); res.end('fixture failed'); }
   });

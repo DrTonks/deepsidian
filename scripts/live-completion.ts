@@ -15,14 +15,18 @@ interface CaseReport extends CompletionCase {
   usage: unknown; usageKnown: boolean; review: 'pending';
 }
 const args = process.argv.slice(2);
-if (args.length > 1 || args.some(arg => !/^--limit=[1-9]\d*$/.test(arg))) {
-  throw Error('Usage: node scripts/live-completion.ts [--limit=N]');
+if (args.some(arg => !/^--limit=[1-9]\d*$/.test(arg) && !/^--suite=(holdout|boundaries)$/.test(arg)) || args.filter(arg=>arg.startsWith('--limit=')).length>1 || args.filter(arg=>arg.startsWith('--suite=')).length>1) {
+  throw Error('Usage: node scripts/live-completion.ts [--suite=holdout|boundaries] [--limit=N]');
 }
-const fixtures: CompletionCase[] = JSON.parse(await readFile(new URL('../fixtures/completion-cases.json', import.meta.url), 'utf8'));
-if (!Array.isArray(fixtures) || fixtures.length !== 20 || fixtures.some(item =>
+const suite=args.find(arg=>arg.startsWith('--suite='))?.slice('--suite='.length)??'fixed';
+const suiteFiles={fixed:['completion-cases.json',20],holdout:['completion-holdout.json',8],boundaries:['completion-boundaries.json',10]} as const;
+const [fixtureFile,expectedCount]=suiteFiles[suite as keyof typeof suiteFiles];
+const fixtures: CompletionCase[] = JSON.parse(await readFile(new URL(`../fixtures/${fixtureFile}`, import.meta.url), 'utf8'));
+if (!Array.isArray(fixtures) || fixtures.length !== expectedCount || fixtures.some(item =>
   !item || ['id', 'category', 'title', 'prefix', 'suffix', 'reviewFocus'].some(key => typeof item[key as keyof CompletionCase] !== 'string') || typeof item.allowEmpty !== 'boolean'
 ) || new Set(fixtures.map(item => item.id)).size !== fixtures.length) throw Error('Invalid synthetic completion fixtures');
-const limit = args[0] ? Number(args[0].slice('--limit='.length)) : fixtures.length;
+const limitArg=args.find(arg=>arg.startsWith('--limit='));
+const limit = limitArg ? Number(limitArg.slice('--limit='.length)) : fixtures.length;
 if (!Number.isSafeInteger(limit) || limit > fixtures.length) throw Error(`--limit must be between 1 and ${fixtures.length}`);
 const selected = fixtures.slice(0, limit);
 await mkdir('.runs', { recursive: true });
@@ -50,7 +54,7 @@ async function save() {
   const failed = cases.filter(item => item.outcome === 'timeout' || item.outcome === 'error');
   const report = {
     at: new Date().toISOString(), state: runState, synthetic: true, quality: 'pending-human-review',
-    model, versions, requestDeadlineMs: 8000, scriptRetries: 0, selectedCases: selected.map(item => item.id),
+    model, versions, suite, requestDeadlineMs: 8000, scriptRetries: 0, selectedCases: selected.map(item => item.id),
     coldStart: { outcome: coldStartOutcome, elapsedMs: coldStartMs ?? null },
     summary: {
       attempted: cases.length, candidates: cases.filter(item => item.outcome === 'candidate').length,

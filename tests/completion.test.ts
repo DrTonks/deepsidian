@@ -80,3 +80,15 @@ test('completed inline constructs permit subsequent prose but open constructs re
   const source='用 `Map` 存储数据';assert.equal(context(source,source.indexOf('Map')+1),null);
   const linked='参考 [官方文档](https://example.com)，后文';assert.equal(context(linked,linked.indexOf('官方')+1),null);
 });
+
+test('completion refuses dangling clauses before a line boundary but preserves valid mid-sentence joins',()=>{
+  for(const suffix of ['', '\n- 下一步', '\r\n\r\n下一段', '  \n# 下一节']){
+    for(const text of ['查找原因，','查找原因；',' find the cause,',' find the cause;'])
+      assert.equal(normalizeCompletion(text,{prefix:'先',suffix,title:''}),null);
+    assert.equal(normalizeCompletion('查找原因。',{prefix:'先',suffix,title:''}),'查找原因。');
+  }
+  for(const suffix of ['再修复。','\n再修复。','\r\n  再修复。'])assert.equal(normalizeCompletion('查找原因，',{prefix:'先',suffix,title:''}),'查找原因，');
+  assert.equal(normalizeCompletion('查找原因，',{prefix:'> 先',suffix:'\n然后修复。',title:''}),'查找原因，');
+  assert.equal(normalizeCompletion('查找原因，',{prefix:'> 先',suffix:'\n> 再修复。',title:''}),'查找原因，');
+  for(const suffix of ['\n>\n> 新段落','\n> - 新条目','\n> # 新标题'])assert.equal(normalizeCompletion('查找原因，',{prefix:'> 先',suffix,title:''}),null);
+});

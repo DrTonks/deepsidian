@@ -562,3 +562,19 @@ test('completion lease prevents idle shutdown; stalled cancellation recycles onl
   p.client.completionStalled=true;p.busy=true;p.maintainConnection();assert.equal(disconnected,0);
   p.busy=false;p.maintainConnection();assert.equal(disconnected,1);
 });
+
+test('completion connection status clears immediately on cancellation, before startup settles',async()=>{
+  const p=new Deepsidian();p.state.settings.completionEnabled=true;
+  p.completionStatusEl={textContent:'',style:{display:'none'}};
+  let release!:(value:unknown)=>void;
+  p.connect=()=>new Promise(resolve=>{release=resolve;});
+  const abort=new AbortController(),pending=p.completeNote({title:'test',prefix:'正文',suffix:''},abort.signal);
+  const rejected=assert.rejects(pending,/abort/i);
+  assert.match(p.completionStatusEl.textContent,/连接/);
+  assert.equal(p.completionStatusEl.style.display,'');
+  abort.abort();
+  assert.equal(p.completionStatusEl.style.display,'none');
+  release({complete:()=>assert.fail('cancelled startup must never send a paid request')});
+  await rejected;
+  assert.equal(p.completionStatusEl.style.display,'none');
+});
