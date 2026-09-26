@@ -4,7 +4,7 @@
 
 Deepseedian is a desktop Obsidian assistant powered by a locally installed [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) runtime. Ask questions with note context, inspect sources and citations, fork conversations, manage vault memory, generate local article catalogs and Bases, and request manual inline completion.
 
-Version **0.7.1** is available on [GitHub Releases](https://github.com/DrTonks/deepseedian/releases/tag/0.7.1). This patch fixes the UI guideline errors reported in the 0.7.0 community review; directory approval is still pending. The interface is currently primarily Chinese; an English interface is not yet available. Detailed Chinese documentation follows below.
+Version **0.7.1** is available on [GitHub Releases](https://github.com/DrTonks/deepseedian/releases/tag/0.7.1). This patch fixes the UI guideline errors reported in the 0.7.0 community review. The automated review is complete, and the [community listing](https://community.obsidian.md/plugins/deepsidian) is published. Advisory warnings remain visible in its scorecard. The interface is currently primarily Chinese; an English interface is not yet available. Detailed Chinese documentation follows below.
 
 ### Installation
 
@@ -49,7 +49,7 @@ Licensed under [MIT](LICENSE). The DeepSeek whale icon's attribution and license
 
 Deepseedian 是面向桌面端 Obsidian 的 AI 助手，通过本机 [DeepSeek Harness（DSH）](https://github.com/deepseek-ai/deepseek-harness) 连接模型供应商，在笔记上下文中完成问答、来源检索与会话管理。
 
-当前版本为 **0.7.1**，修复 0.7.0 社区审核发现的界面规范错误，目录审核尚未完成。
+当前版本为 **0.7.1**，已修复 0.7.0 的社区审核阻断项，自动检查完成，[社区条目已公开](https://community.obsidian.md/plugins/deepsidian)。评分卡仍显示部分警告，后续持续改进。
 
 [安装与环境](#安装与环境) · [使用说明](#使用说明) · [费用与隐私](#费用与隐私) · [开发与验证](#开发与验证) · [社区发布指南](docs/COMMUNITY-RELEASE.md)
 

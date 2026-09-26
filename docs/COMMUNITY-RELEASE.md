@@ -1,6 +1,6 @@
 # 社区发布指南
 
-0.7.0 首次社区审核未通过：目录预览存在三处静态内联样式赋值，设置页手动创建 HTML 标题。0.7.1 将样式移入 CSS 并使用标准 Setting 标题，同时加入官方 ESLint 本地预检。维护者已授权发布和提交审核；发布完成不等于目录审核通过。当前状态请查看 [GitHub Releases](https://github.com/DrTonks/deepseedian/releases) 和社区管理页。
+0.7.0 首次社区审核未通过：目录预览存在三处静态内联样式赋值，设置页手动创建 HTML 标题。0.7.1 将样式移入 CSS 并使用标准 Setting 标题，同时加入官方 ESLint 本地预检。维护者已授权发布和提交审核；发布完成不等于目录审核通过。截至 2026-09-26，0.7.1（1582b0c）正式扫描为 Completed，无阻断错误，构建逐字节复现通过，已点击 Publish 并确认[公开条目及安装入口](https://community.obsidian.md/plugins/deepsidian)。评分卡为 Health: Excellent / Review: Caution，仍有警告和建议；不表示所有问题均已清零。
 
 ## 产品名称与兼容
 
