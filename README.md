@@ -1,8 +1,53 @@
 # Deepseedian
 
+## Overview
+
+Deepseedian is a desktop Obsidian assistant powered by a locally installed [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) runtime. Ask questions with note context, inspect sources and citations, fork conversations, manage vault memory, generate local article catalogs and Bases, and request manual inline completion.
+
+Version **0.7.0** is available on [GitHub Releases](https://github.com/DrTonks/deepseedian/releases/tag/0.7.0). The community directory submission is under review. The interface is currently primarily Chinese; an English interface is not yet available. Detailed Chinese documentation follows below.
+
+### Installation
+
+Requires **desktop Obsidian 1.13.7+**, **Node.js 24+**, and **DSH 0.1.7-rc.2**. Mobile devices are not supported. Install Node.js separately, then run:
+
+```sh
+npm install -g @deepseek-ai/dsh@0.1.7-rc.2
+dsh web
+```
+
+Configure a model provider and its credentials in DSH and test a conversation there. You can then close DSH Web. Deepseedian starts a separate local runtime; it does not install or update Node.js, DSH, or itself.
+
+Download `main.js`, `manifest.json`, and `styles.css` from the release into your vault's `.obsidian/plugins/deepsidian/` directory and enable **Deepseedian** in Community plugins. Keep `data.json` and runtime/memory directories when updating. The embedded bridge needs no separate download. The plugin ID remains `deepsidian` for compatibility with existing settings and conversations.
+
+On macOS, Obsidian launched from Finder may have a different PATH from your terminal. If automatic discovery fails, set the full Node.js executable path and DSH package directory in advanced runtime settings. Find them with `command -v node` and `npm root -g`; on Windows, use `where.exe node`.
+
+### Usage, payment, and privacy
+
+- Select text and use the note-question command, or open the sidebar to chat. Inspect the next-message context before sending. Source removal does not erase already sent history.
+- Manual completion is **off by default**. Enable it in settings, run the completion command in Markdown prose, then accept the gray suggestion with **Tab** or dismiss it with **Esc**. Acceptance is a separate undo step. Completion uses paid **deepseek-official / deepseek-flash**, independently of the chat model, and sends the title plus text around the cursor. It has no access to chat history, memory, or tools. Limits are 10 calls per minute and 200 per UTC day per vault, including failed or cancelled requests; these are not monetary limits.
+- The plugin is free and open source. Cloud AI and search providers may require accounts, credentials, and payment; their fees are separate. AI chat may send questions, conversation history, selected note context, attachments, tool results, and enabled memory to the chosen provider. AI memory extraction and optional idle proposals also make model requests.
+- Memory reading, AI memory management, web search, and web fetching are enabled by default for new installations; existing disabled settings are preserved. AI memory management can directly change vault memory when session permissions allow. Idle memory proposals and manual completion are off by default. Catalog generation and updates require confirmation and run locally.
+- Web search sends queries to the configured search service; web fetching accesses public websites. The DSH update check queries the public npm registry at most daily by default, without note or chat content, and can be disabled.
+- The plugin uses Node.js filesystem and child-process APIs to locate and run Node.js/DSH, read configuration and credentials from `~/.dsh` or a custom directory, and read explicitly attached external files. Chats, runtime logs, sent attachments, and memory are stored under the vault's plugin directory. No client-side telemetry is added. Remote services have their own data policies, including [DeepSeek's privacy policy](https://cdn.deepseek.com/policies/zh-CN/deepseek-privacy-policy.html).
+- Note properties such as `draft` or `encrypted` are not access controls. Completion exclusions do not restrict chat tools. Publishing or reviewing this plugin does not require uploading personal articles.
+
+AI suggestions can be incomplete or factually wrong. Read them before accepting; completion is not a fact-checking tool. The [0.7 validation report](docs/VALIDATION-0.7.0.md) records both successful and failed real-provider cases. Windows/Linux CI does not replace native UI testing, and third-party completion plugins, native input methods, and all themes have not been exhaustively tested. Runtime migration and three-file installation are covered by integration tests.
+
+### Development and releases
+
+Use Node.js 24+ and run `npm ci`, `npm run check`, and `npm run test:integration` (requires DSH). Older-runtime migration fixtures are optional and are reported as skipped when absent. `npm run package:release` produces the three release assets. Live-provider test scripts incur charges and use synthetic fixtures by default; real-article testing requires authorization. Reports and credentials must not be committed.
+
+Source pushes alone do not deliver plugin updates. Increment the version, publish a matching Git tag and GitHub Release with the three assets, and check the community review results. See the [release guide](docs/COMMUNITY-RELEASE.md).
+
+Licensed under [MIT](LICENSE). The DeepSeek whale icon's attribution and license are in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) and included in the release bundle. The runtime uses DeepSeek Harness; sidebar interaction design draws inspiration from [Claudian](https://github.com/YishenTu/claudian). Deepseedian is an independent community project, not an official Obsidian or DeepSeek product.
+
+---
+
+## 中文说明
+
 Deepseedian 是面向桌面端 Obsidian 的 AI 助手，通过本机 [DeepSeek Harness（DSH）](https://github.com/deepseek-ai/deepseek-harness) 连接模型供应商，在笔记上下文中完成问答、来源检索与会话管理。
 
-当前版本为 **0.7.0 正式版本**，尚未上架 Obsidian 社区插件目录。
+当前版本为 **0.7.0 正式版本**，社区条目已创建，审核尚未完成。
 
 [安装与环境](#安装与环境) · [使用说明](#使用说明) · [费用与隐私](#费用与隐私) · [开发与验证](#开发与验证) · [社区发布指南](docs/COMMUNITY-RELEASE.md)
 
