@@ -28,6 +28,18 @@
 
 ## 发布与社区边界
 
-本地验收不能代替 GitHub CI 或社区扫描。0.7.1 社区条目已公开，但此前客户端搜索没有找到插件。0.7.2 的发布、扫描及客户端安装状态应以本次实际查询为准，不能沿用旧版本审核结论。
+- 发布提交与标签 `0.7.2` 均指向 `e8fcbf181ca9d37e731515f2a6bddd3986ed46db`。
+- [GitHub CI](https://github.com/DrTonks/deepseedian/actions/runs/36241448266)：Windows、macOS、Ubuntu 的 check 全部通过。该 push 工作流未运行 runtime 作业；本地 16 项运行时集成测试如上所述已通过。
+- [GitHub Release 0.7.2](https://github.com/DrTonks/deepseedian/releases/tag/0.7.2) 于 2026-09-26 20:19（UTC+8）公开。三个附件已重新从公开下载地址获取，并与验收构建逐字节比较一致。
+- 社区管理页执行 Check for new releases 后，确认 0.7.2 / e8fcbf1 已进入 Pending。此前 0.7.1 的 Completed 不能代替本次审核。
+- 本轮 Obsidian 原生市场搜索 Deepseedian 仍显示“未找到相关结果”。公开插件清单共 8,080 项，未包含 `deepsidian`；这属于尚未完成的客户端安装验收，不能以 GitHub 下载成功代替。
 
 文档中的功能截图仍为真实 0.7.1 实机记录，已明确说明 0.7.2 的分支标题差异；没有改绘旧截图来模拟新界面。
+
+## 公开发行文件 SHA-256
+
+| 文件 | SHA-256 |
+| --- | --- |
+| `main.js` | `6968b4d11dcbe88df5ea7de744f8a2e8e89540e43c2b972445bd6ee07a593934` |
+| `manifest.json` | `297ff6d96dad31e197f1c508c62e2ef900adce4894c997a9ff88325f71403a75` |
+| `styles.css` | `cffb60d0b40675b4a7754659458a4beec8f6ce065977fbb898054a7204c1ccae` |
