@@ -37,6 +37,14 @@ test('completion finalization preserves boundary spaces and rejects multiline/co
   assert.equal(normalizeCompletion(' continuation  '),' continuation  ');
   for(const value of ['','  ','第一行\n第二行','第一行\r第二行','第一行\u2028第二行','bad\u0000text','a'.repeat(501),'```bad','```text\n一句补全\n```','\n正文','正文\n'])assert.equal(normalizeCompletion(value),null);
 });
+test('completion rejects repeated suffix punctuation and emphasis without rewriting candidates',()=>{
+  for(const [text,suffix] of [['收起。','。后文'],['收起。**','。**\n下一段'],['收起。','。**\n下一段'],[' done.','. Next'],['收起，','，然后继续']]){
+    assert.equal(normalizeCompletion(text!,{prefix:'操作后',suffix:suffix!,title:''}),null);
+  }
+  assert.equal(normalizeCompletion('收起',{prefix:'操作后',suffix:'。**',title:''}),'收起');
+  assert.equal(normalizeCompletion('完成。接着收起',{prefix:'操作后',suffix:'。',title:''}),'完成。接着收起');
+  assert.equal(normalizeCompletion('收起。',{prefix:'操作后',suffix:'\n下一段',title:''}),'收起。');
+});
 test('completion rejects joined ASCII words without inventing boundary spaces',()=>{
   const input={prefix:'The newest item is',suffix:' before older items.',title:'Queue'};
   assert.equal(normalizeCompletion('removed first',input),null);

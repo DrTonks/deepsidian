@@ -35,7 +35,7 @@ function openInlineSyntax(left:string):boolean {
 export function completionContext(state:EditorState,title:string):CompletionInput|null {
   if(state.selection.ranges.length!==1||!state.selection.main.empty||state.readOnly)return null;
   const at=state.selection.main.head;
-  // The experiment completes phrases, not the middle of an ASCII word.
+  // Complete phrases, not the middle of an ASCII word.
   if(/[A-Za-z0-9]$/.test(state.doc.sliceString(Math.max(0,at-1),at))&&/^[A-Za-z0-9]/.test(state.doc.sliceString(at,Math.min(state.doc.length,at+1))))return null;
   if(!syntaxTreeAvailable(state,at))return null;
   const tree=syntaxTree(state);
@@ -100,6 +100,13 @@ export function normalizeCompletion(text:string,input?:CompletionInput):string|n
   const result=text;
   if(!result.trim()||/[\n\r\u2028\u2029\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(result)||result.includes('```')||result.length>500)return null;
   if(input&&((/[A-Za-z0-9]$/.test(input.prefix)&&/^[A-Za-z0-9]/.test(result))||(/[A-Za-z0-9]$/.test(result)&&/^[A-Za-z0-9]/.test(input.suffix))))return null;
+  // The suffix remains in the document. Repeating its punctuation/emphasis
+  // terminator would corrupt the sentence even when the words are plausible.
+  if(input){
+    const closing=/^[。！？!?.,，;；:：]+/.exec(input.suffix)?.[0];
+    const ending=/([。！？!?.,，;；:：]+)(?:\*{1,3}|_{1,3})?\s*$/.exec(result)?.[1];
+    if(closing&&ending===closing)return null;
+  }
   // A new paragraph/list item cannot finish the candidate's dangling clause.
   if(input&&endsProseBlock(input)&&/[,;，；]\s*$/.test(result))return null;
   return result;

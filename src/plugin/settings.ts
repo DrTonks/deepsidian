@@ -21,7 +21,7 @@ export class DeepsidianSettings extends PluginSettingTab {
     const common=this.section(el,'common','常规','连接与默认模型',true);
     const memory=this.section(el,'memory','长期记忆','读取、AI管理与闲时整理',true);
     const network=this.section(el,'network','网络工具','搜索与网页读取',true);
-    const completion=this.section(el,'completion','实验性补全','手动请求 · Tab 接受',false);
+    const completion=this.section(el,'completion','手动补全','手动请求 · Tab 接受',false);
     const advanced=this.section(el,'advanced','高级运行时','Node.js与DSH路径，通常无需修改',false);
     const updates=this.section(el,'updates','更新与诊断','版本检查及连接排查',false);
     new Setting(updates).setName('首次使用与连接诊断').addButton(b => b.setButtonText('打开引导').onClick(() => new SetupModal(this.plugin).open()));
@@ -44,7 +44,7 @@ export class DeepsidianSettings extends PluginSettingTab {
         await this.plugin.disconnect(); this.plugin.state.settings[key] = value; await this.plugin.persist();
       }));
     }
-    new Setting(completion).setName('启用手动笔记补全').setDesc('默认关闭。通过命令“请求当前位置补全（实验）”生成单行灰字，Tab 接受、Esc 丢弃。光标前后少量正文会发送给付费 deepseek-official / deepseek-flash；不读取聊天、记忆或关联笔记。不会自动触发。').addToggle(t=>t.setValue(this.plugin.state.settings.completionEnabled).onChange(async value=>{
+    new Setting(completion).setName('启用手动笔记补全').setDesc('默认关闭。通过命令“请求当前位置补全”生成单行灰字，Tab 接受、Esc 丢弃。光标前后少量正文会发送给付费 deepseek-official / deepseek-flash；不读取聊天、记忆或关联笔记。不会自动触发。').addToggle(t=>t.setValue(this.plugin.state.settings.completionEnabled).onChange(async value=>{
       try{await this.plugin.setCompletion({completionEnabled:value});}catch(error){t.setValue(this.plugin.state.settings.completionEnabled);new Notice(String(error));}
     }));
     new Setting(completion).setName('排除文件或目录').setDesc('每行一个库内路径，例如 私人 或 日记/草稿.md；匹配该文件或目录内全部文件。不支持通配符。').addTextArea(input=>input.setValue(this.plugin.state.settings.completionExcluded).onChange(async value=>{

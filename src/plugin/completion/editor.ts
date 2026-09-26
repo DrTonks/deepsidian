@@ -66,7 +66,7 @@ class CompletionController {
   compositionEnd(){this.composing=false;this.cancel();}
   async request(){
     for(const peer of this.peers)peer.cancel();
-    if(!this.host.enabled(this.file()?.path)){this.host.report('请在 Deepseedian 设置中启用实验性补全，并检查当前文件是否被排除。');return;}
+    if(!this.host.enabled(this.file()?.path)){this.host.report('请在 Deepseedian 设置中启用手动补全，并检查当前文件是否被排除。');return;}
     if(!this.ready()){this.host.report('请在可编辑笔记中放置单个光标，结束输入法组词后再请求补全。');return;}
     const file=this.file();
     if(!file||file.extension!=='md'){this.host.report('仅支持 Markdown 笔记内补全。');return;}

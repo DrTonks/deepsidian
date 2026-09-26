@@ -2,7 +2,7 @@
 
 Deepseedian 是面向桌面端 Obsidian 的 AI 助手，通过本机 [DeepSeek Harness（DSH）](https://github.com/deepseek-ai/deepseek-harness) 连接模型供应商，在笔记上下文中完成问答、来源检索与会话管理。
 
-当前版本为 **0.6.6 初始公开构建**，尚未上架 Obsidian 社区插件目录。
+当前版本为 **0.7.0 正式版本**，尚未上架 Obsidian 社区插件目录。
 
 [安装与环境](#安装与环境) · [使用说明](#使用说明) · [费用与隐私](#费用与隐私) · [开发与验证](#开发与验证) · [社区发布指南](docs/COMMUNITY-RELEASE.md)
 
@@ -50,20 +50,20 @@ Deepseedian 依次读取 DSH 配置目录中的 `settings.yaml`、`profiles/sdk-
 
 ### 2. 安装插件
 
-从 [GitHub Release 0.6.6](https://github.com/DrTonks/deepseedian/releases/tag/0.6.6) 下载 `main.js`、`manifest.json` 和 `styles.css`，复制到笔记库的 `.obsidian/plugins/deepsidian/`。
+从 [GitHub Release 0.7.0](https://github.com/DrTonks/deepseedian/releases/tag/0.7.0) 下载 `main.js`、`manifest.json` 和 `styles.css`，复制到笔记库的 `.obsidian/plugins/deepsidian/`。
 
 也可以从源码构建同一版本：
 
 ```sh
 git clone https://github.com/DrTonks/deepseedian.git
 cd deepseedian
-git checkout 0.6.6
+git checkout 0.7.0
 npm ci
 npm run check
 npm run package:release
 ```
 
-将 `dist/release/0.6.6/` 中的三个文件复制到笔记库的 `.obsidian/plugins/deepsidian/`：
+将 `dist/release/0.7.0/` 中的三个文件复制到笔记库的 `.obsidian/plugins/deepsidian/`：
 
 ```text
 main.js
@@ -125,11 +125,11 @@ Base 提供动态视图，导航是扫描时的快照。后续更新只修改可
 
 ### Tab手动补全
 
-在设置中主动开启后，运行“请求当前位置补全（实验）”。补全固定使用付费 `deepseek-official / deepseek-flash`，与聊天所选模型可能不同；仅发送当前标题和光标前后片段，不读取聊天、记忆或关联笔记。
+在设置中主动开启后，运行“请求当前位置补全”。补全固定使用付费 `deepseek-official / deepseek-flash`，与聊天所选模型可能不同；仅发送当前标题和光标前后片段，不读取聊天、记忆或关联笔记。
 
 该功能不自动触发。候选只在 Tab 接受后写入，Esc 取消，编辑或移动光标会使旧候选失效。按 UTC 日期每库最多 200 次调用、每分钟 10 次，失败与取消也计入额度；这些是调用次数限制，不是金额上限。
 
-补全可能延续错误前提或产生矛盾内容，不能作为事实校验工具。当前保持默认关闭，完整边界见 [补全实验记录](docs/TAB-COMPLETION-EXPERIMENT.md)。
+补全可能延续错误前提或产生矛盾内容，不能作为事实校验工具。当前保持默认关闭，完整边界见 [手动补全说明](docs/TAB-COMPLETION.md)。
 
 ## 费用与隐私
 
@@ -150,14 +150,14 @@ Base 提供动态视图，导航是扫描时的快照。后续更新只修改可
 
 ## 当前限制与验证范围
 
-- 当前为桌面端初步构建，需要手动准备 Node.js 和 DSH；不支持移动端。
+- 当前为桌面端版本，需要手动准备 Node.js 和 DSH；不支持移动端。
 - 标题、普通段落块及一跳关联已实现；复杂列表/表格块、任意 Base 公式求值、向量检索尚不支持。部分查询最多扫描 2000 篇，属性与链接缓存可能短暂滞后。
 - 上下文清单记录宿主明确附带的来源，并非模型完整输入重放或精确费用估算。字符预算不覆盖全部历史及运行时内部重试。
 - 聊天与轨迹仍集中保存在 `data.json`，长历史性能、跨设备并发和完整日志清理尚待完善。
-- 最近发布前检查通过 158 项离线及 16 项运行时集成测试，包含旧历史迁移和标准三文件安装。macOS Obsidian 1.13.7 已验证连接、选区、分支、来源跳转、补全撤销和真实博客 Base 日期。
-- Windows/Linux 的 CI 与模拟组件测试不能替代原生界面验收；全新机器、真实中文输入法、其他补全插件、所有主题及真实付费搜索权限仍有未验证项。付费补全留出测试保留了一条语义失败记录，不能以请求成功代表回答可靠。
+- 最近发布前检查通过 159 项离线及 16 项运行时集成测试，包含旧历史迁移和标准三文件安装。macOS Obsidian 1.13.7 已验证连接、选区、分支、来源跳转、补全撤销和真实博客 Base 日期。
+- Windows/Linux 的 CI 与模拟组件测试不能替代原生界面验收；全新机器、真实中文输入法、其他补全插件、所有主题及真实付费搜索权限仍有未验证项。本轮真实文章与合成补全测试均保留语义失败记录，不能以请求成功代表回答可靠。
 
-完整证据与边界见 [macOS 验收记录](docs/MACOS-VALIDATION.md)、[真实供应商验证](docs/LIVE-VALIDATION.md)及[研究路线图](docs/RESEARCH-ROADMAP.md)。
+本次真实文章结果见 [0.7 验证记录](docs/VALIDATION-0.7.0.md)。完整证据与边界见 [macOS 验收记录](docs/MACOS-VALIDATION.md)、[真实供应商验证](docs/LIVE-VALIDATION.md)及[研究路线图](docs/RESEARCH-ROADMAP.md)。
 
 ## 开发与验证
 

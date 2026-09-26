@@ -38,8 +38,8 @@
     "obsidian": "1.13.1",
     "typescript": "7.0.2"
   },
-  "version": "0.6.6",
-  "description": "An Obsidian desktop plugin for note-grounded AI conversations, memory, and experimental inline completion, powered by DeepSeek Harness.",
+  "version": "0.7.0",
+  "description": "An Obsidian desktop plugin for note-grounded AI conversations, memory, and manual inline completion, powered by DeepSeek Harness.",
   "license": "MIT",
   "overrides": {
     "@codemirror/lint": "6.8.5"

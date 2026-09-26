@@ -72,7 +72,7 @@ export default class Deepsidian extends Plugin {
     }).catch(()=>new Notice('无法保存补全统计'));
   }
   async completeNote(input:{prefix:string;suffix:string;title:string}, signal:AbortSignal) {
-    if(!this.completionEnabled())throw Error('请先在设置中开启实验性手动补全');
+    if(!this.completionEnabled())throw Error('请先在设置中开启手动补全');
     if(this.completionPending || this.client?.completionActive)throw Error('上一条补全正在结束，请稍后再试');
     signal.throwIfAborted();
     const generation=this.completionGeneration;
@@ -233,7 +233,7 @@ export default class Deepsidian extends Plugin {
     this.completionStatusEl.setAttribute('aria-live','polite');
     this.completionExtension=createCompletionExtension({enabled:path=>this.completionEnabled(path),complete:(input,signal)=>this.completeNote(input,signal),report:message=>new Notice(message),shown:()=>this.completionMetric('shown'),accepted:()=>this.completionMetric('accepted')});
     this.registerEditorExtension(this.completionExtension.extension);
-    this.addCommand({id:'complete-note',name:'请求当前位置补全（实验）',editorCallback:(editor)=>{
+    this.addCommand({id:'complete-note',name:'请求当前位置补全',editorCallback:(editor)=>{
       const cm=(editor as typeof editor & {cm?:EditorView}).cm;
       if(!cm){new Notice('当前编辑器不支持内联补全');return;}
       cm.focus();
