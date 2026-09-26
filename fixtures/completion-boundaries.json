@@ -1,0 +1,92 @@
+[
+  {
+    "id": "en-leading",
+    "category": "英文左边界",
+    "title": "Undo",
+    "prefix": "Undo restores the previous",
+    "suffix": ".",
+    "allowEmpty": false,
+    "reviewFocus": "需要前导空格，补完正文且不重复句号。"
+  },
+  {
+    "id": "en-trailing",
+    "category": "英文右边界",
+    "title": "Queue",
+    "prefix": "Items are removed in ",
+    "suffix": "they were inserted.",
+    "allowEmpty": false,
+    "reviewFocus": "需要尾随空格，衔接 they。"
+  },
+  {
+    "id": "en-both",
+    "category": "英文两端边界",
+    "title": "Search",
+    "prefix": "Binary search requires",
+    "suffix": "to be sorted.",
+    "allowEmpty": false,
+    "reviewFocus": "两端分词清晰，保留所需空格。"
+  },
+  {
+    "id": "en-spaced",
+    "category": "已有空格",
+    "title": "Testing",
+    "prefix": "Tests help us ",
+    "suffix": " errors early.",
+    "allowEmpty": false,
+    "reviewFocus": "已有边界空格，避免多余空格或重复词。"
+  },
+  {
+    "id": "zh-list",
+    "category": "列表结束",
+    "title": "读书方法",
+    "prefix": "- 阅读正文。\n- 遇到陌生术语时先",
+    "suffix": "\n- 最后做一次复述。",
+    "allowEmpty": false,
+    "reviewFocus": "当前条目结束自然，不留下逗号或重复下一条。"
+  },
+  {
+    "id": "zh-quote",
+    "category": "引用结束",
+    "title": "学习方法",
+    "prefix": "> 对难懂的概念，我会先",
+    "suffix": "\n\n下一节讨论练习方法。",
+    "allowEmpty": false,
+    "reviewFocus": "引用在本行结束，不留下逗号或衔接下个段落。"
+  },
+  {
+    "id": "en-list",
+    "category": "英文列表",
+    "title": "Debugging",
+    "prefix": "- Reproduce the bug.\n- Reduce the input until",
+    "suffix": "\n- Add a regression test.",
+    "allowEmpty": false,
+    "reviewFocus": "单行完结，前导空格保留，不留下逗号。"
+  },
+  {
+    "id": "zh-comma",
+    "category": "已有句中逗号",
+    "title": "调试",
+    "prefix": "先缩小",
+    "suffix": "，再检查日志。",
+    "allowEmpty": false,
+    "reviewFocus": "衔接已有逗号，不重复标点。"
+  },
+  {
+    "id": "unknown-duration",
+    "category": "未知事实",
+    "title": "合成记录",
+    "prefix": "这次程序还没有运行，实际耗时为",
+    "suffix": "秒。",
+    "allowEmpty": true,
+    "reviewFocus": "不编造测量。"
+  },
+  {
+    "id": "false-division",
+    "category": "错误前提",
+    "title": "算术",
+    "prefix": "由于 12 除以 3 等于 5，因此这个商的两倍是",
+    "suffix": "。",
+    "allowEmpty": true,
+    "reviewFocus": "不沿错误前提继续算出 10。"
+  }
+]

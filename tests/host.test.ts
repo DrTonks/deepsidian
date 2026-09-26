@@ -516,6 +516,69 @@ test('drafts survive persistence independently; abandoned return fields never en
   assert.equal(p.chat.draft.text,'');assert.equal(p.state.chats[1].draft.text,'child draft');
 });
 
+test('completion persists reservation before dispatch, preserves chats, and fails closed on storage failure',async()=>{
+  const p=new Deepsidian();p.state.settings.completionEnabled=true;
+  p.state.chats=[{id:'parent',title:'original',messages:[]}];p.state.activeId='parent';
+  const before=JSON.stringify(p.state.chats);let calls=0;let persisted:any;
+  const client={complete:async()=>{calls++;assert.equal(persisted.completionBudget.calls,1);return {text:'候选',elapsedMs:1};}};
+  p.connect=async()=>client;p.saveData=async(data:any)=>{persisted=structuredClone(data);};
+  assert.equal((await p.completeNote({prefix:'前文',suffix:'',title:'合成'},new AbortController().signal)).text,'候选');
+  assert.equal(calls,1);assert.equal(JSON.stringify(p.state.chats),before);assert.equal(p.completionPending,false);
+  p.state.completionBudget=undefined;p.saveData=async()=>{throw Error('disk full');};
+  await assert.rejects(p.completeNote({prefix:'前文',suffix:'',title:'合成'},new AbortController().signal),/disk full/);
+  assert.equal(calls,1);assert.equal(p.state.completionBudget,undefined);assert.equal(p.completionPending,false);
+});
+test('completion cancellation during connect/settings save never dispatches and quotas reject a second attempt',async()=>{
+  const p=new Deepsidian();p.state.settings.completionEnabled=true;let calls=0,release!:(c:unknown)=>void;
+  const client={complete:async()=>{calls++;return {text:'候选'};}};
+  p.connect=()=>new Promise(r=>release=r);const c=new AbortController();
+  const result=p.completeNote({prefix:'前',suffix:'',title:'t'},c.signal);const rejected=assert.rejects(result,/abort/i);
+  await assert.rejects(p.completeNote({prefix:'另',suffix:'',title:'t'},new AbortController().signal),/上一条/);
+  c.abort();release(client);await rejected;assert.equal(calls,0);assert.equal(p.completionPending,false);
+  p.connect=async()=>client;let releaseSave!:()=>void;
+  p.saveData=()=>new Promise<void>(r=>releaseSave=r);
+  const c2=new AbortController();const result2=p.completeNote({prefix:'前',suffix:'',title:'t'},c2.signal);
+  const rejected2=assert.rejects(result2,/abort/i);await new Promise(r=>setTimeout(r,0));c2.abort();releaseSave();await rejected2;
+  assert.equal(calls,0);assert.equal(p.state.completionBudget.calls,1,'durable reservation is not refunded after abort');
+});
+
+test('completion settings merge independent fields after delayed saves and block requests while saving',async()=>{
+  const p=new Deepsidian();p.state.settings.completionEnabled=true;
+  let release!:()=>void;let calls=0;let saved:any;
+  p.saveData=async(data:any)=>{calls++;if(calls===1)await new Promise<void>(r=>release=r);saved=structuredClone(data);};
+  const disabled=p.setCompletion({completionEnabled:false});await new Promise(r=>setTimeout(r,0));
+  assert.equal(p.completionEnabled('私人/笔记.md'),false,'settings in flight suppress new requests');
+  const excluded=p.setCompletion({completionExcluded:'私人'});release();await Promise.all([disabled,excluded]);
+  assert.equal(p.state.settings.completionEnabled,false);assert.equal(saved.settings.completionEnabled,false);
+  assert.equal(p.state.settings.completionExcluded,'私人');assert.equal(saved.settings.completionExcluded,'私人');
+  assert.equal(p.completionSettingsPending,0);
+});
+
+test('completion lease prevents idle shutdown; stalled cancellation recycles only without a running chat',()=>{
+  const p=new Deepsidian();p.layoutReady=true;p.lastUsed=0;p.state.settings.autoConnect=false;
+  let disconnected=0;p.disconnect=async()=>{disconnected++;};p.idleScheduler.tick=async()=>{};
+  p.client={connected:true,completionActive:true,completionStalled:false};
+  p.maintainConnection();assert.equal(disconnected,0);
+  p.client.completionStalled=true;p.busy=true;p.maintainConnection();assert.equal(disconnected,0);
+  p.busy=false;p.maintainConnection();assert.equal(disconnected,1);
+});
+
+test('completion connection status clears immediately on cancellation, before startup settles',async()=>{
+  const p=new Deepsidian();p.state.settings.completionEnabled=true;
+  p.completionStatusEl={textContent:'',style:{display:'none'}};
+  let release!:(value:unknown)=>void;
+  p.connect=()=>new Promise(resolve=>{release=resolve;});
+  const abort=new AbortController(),pending=p.completeNote({title:'test',prefix:'正文',suffix:''},abort.signal);
+  const rejected=assert.rejects(pending,/abort/i);
+  assert.match(p.completionStatusEl.textContent,/连接/);
+  assert.equal(p.completionStatusEl.style.display,'');
+  abort.abort();
+  assert.equal(p.completionStatusEl.style.display,'none');
+  release({complete:()=>assert.fail('cancelled startup must never send a paid request')});
+  await rejected;
+  assert.equal(p.completionStatusEl.style.display,'none');
+});
+
 test('selection preparation preserves an existing draft, persists its snapshot, and never sends a model request',async()=>{
   const p=new Deepsidian();p.state.chats=[{id:'a',title:'a',messages:[],draft:{text:'我的问题'}}];p.state.activeId='a';
   const text='# Attention\n\nKV cache stores keys and values.';
@@ -637,4 +700,36 @@ test('closed CRLF notes retain snapshot locations for current and legacy revisio
   }
   disk='# Changed\r\n\r\nselected paragraph';
   await p.openSource('note.md','',false,snapshot);assert.equal(opened.eState.line,0);
+});
+
+
+test('selection preparation immediately cancels pending completion before asynchronous source checks',async()=>{
+  const p=new Deepsidian();p.state.settings.completionEnabled=true;
+  p.state.chats=[{id:'a',title:'a',messages:[],draft:{text:'question'}}];p.state.activeId='a';
+  p.completionStatusEl={textContent:'',style:{display:'none'}};
+  let connectRelease!:(value:unknown)=>void,pathRelease!:()=>void,cancelled=0;
+  p.connect=()=>new Promise(resolve=>{connectRelease=resolve;});
+  p.completionExtension={cancelAll:()=>{cancelled++;}};
+  const completion=p.completeNote({title:'note',prefix:'text',suffix:''},new AbortController().signal);
+  const aborted=assert.rejects(completion,/abort/i);
+  p.assertContained=()=>new Promise<void>(resolve=>{pathRelease=resolve;});p.open=async()=>{};
+  const selection=p.prepareSelection({getValue:()=> 'selected text',getCursor:(which:string)=>({line:0,ch:which==='from'?0:8})},{file:{path:'note.md'}});
+  assert.equal(cancelled,1);assert.equal(p.completionStatusEl.style.display,'none');
+  connectRelease({complete:()=>assert.fail('selection supersedes the pending paid completion')});
+  await aborted;
+  assert.equal(p.state.completionBudget,undefined,'cancelled startup must not consume a completion reservation');
+  pathRelease();await selection;
+  assert.equal(p.chat.draft.context.selection,'selected');assert.equal(p.chat.draft.text,'question');
+  assert.equal(p.busy,false);assert.equal(p.completionPending,false);
+});
+
+test('completion uses only editor input and preserves a separately pinned learning snapshot',async()=>{
+  const p=new Deepsidian();p.state.settings.completionEnabled=true;
+  const context={path:'selected.md',selection:'private pinned selection',nearby:'learning context',pinned:true};
+  p.state.chats=[{id:'a',title:'a',messages:[],draft:{text:'question',context}}];p.state.activeId='a';p.source={...context};
+  const input={title:'other',prefix:'editor prefix',suffix:'editor suffix'};
+  p.connect=async()=>({complete:async(actual:any)=>{assert.deepEqual(actual,input);return {text:' candidate'};}});
+  await p.completeNote(input,new AbortController().signal);
+  assert.deepEqual(p.source,context);assert.deepEqual(p.chat.draft.context,context);assert.equal(p.chat.draft.text,'question');
+  assert.equal(p.chat.messages.length,0);
 });

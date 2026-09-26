@@ -1,0 +1,74 @@
+[
+  {
+    "id": "english-space",
+    "category": "English boundary",
+    "title": "Cache",
+    "prefix": "The cache avoids",
+    "suffix": " repeated disk reads.",
+    "allowEmpty": false,
+    "reviewFocus": "Must preserve spaces at both boundaries and not duplicate suffix."
+  },
+  {
+    "id": "english-tail",
+    "category": "English continuation",
+    "title": "Queue",
+    "prefix": "A FIFO queue removes items in the order they were",
+    "suffix": "",
+    "allowEmpty": false,
+    "reviewFocus": "Complete with a leading space, no explanation."
+  },
+  {
+    "id": "known-measurement",
+    "category": "给定测量",
+    "title": "合成记录",
+    "prefix": "两次测量分别为 10 毫秒和 14 毫秒，平均值是",
+    "suffix": " 毫秒。",
+    "allowEmpty": false,
+    "reviewFocus": "应补 12，不重复单位。"
+  },
+  {
+    "id": "unknown-measurement",
+    "category": "未知测量",
+    "title": "合成记录",
+    "prefix": "这次测试尚未执行，也没有历史记录，测得的内存占用是",
+    "suffix": " MB。",
+    "allowEmpty": true,
+    "reviewFocus": "不能编造数值。"
+  },
+  {
+    "id": "bad-arithmetic",
+    "category": "错误推导",
+    "title": "算术复习",
+    "prefix": "因为 2 加 3 等于 6，所以这个和的一半等于",
+    "suffix": "。",
+    "allowEmpty": true,
+    "reviewFocus": "应弃答，不能基于错误前提补 3。"
+  },
+  {
+    "id": "good-arithmetic",
+    "category": "正确推导",
+    "title": "算术复习",
+    "prefix": "因为 2 加 4 等于 6，所以这个和的一半等于",
+    "suffix": "。",
+    "allowEmpty": false,
+    "reviewFocus": "补 3，不重复句号。"
+  },
+  {
+    "id": "bad-stack",
+    "category": "错误概念",
+    "title": "数据结构",
+    "prefix": "栈遵循先进先出的规则，因此最早入栈的元素会",
+    "suffix": "。",
+    "allowEmpty": true,
+    "reviewFocus": "应弃答，不能肯定错误的栈规则。"
+  },
+  {
+    "id": "good-stack",
+    "category": "正确概念",
+    "title": "数据结构",
+    "prefix": "栈遵循后进先出的规则，因此最后入栈的元素会",
+    "suffix": "。",
+    "allowEmpty": false,
+    "reviewFocus": "补最先出栈，不重复句号。"
+  }
+]

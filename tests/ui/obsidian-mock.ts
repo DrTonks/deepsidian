@@ -1,3 +1,5 @@
+import {StateField} from '@codemirror/state';
+export const editorInfoField=StateField.define<any>({create:()=>null,update:value=>value});
 // Browser-only host adapter for rendering the production view with synthetic fixtures.
 // This is not bundled into the Obsidian plugin.
 const icons = new Map<string,string>();
@@ -48,6 +50,7 @@ export class Setting {
   addButton(callback:any){const button=create(this.controls,'button') as HTMLButtonElement;const api={setButtonText(text:string){button.textContent=text;return api;},setCta(){button.classList.add('mod-cta');return api;},setDisabled(value:boolean){button.disabled=value;return api;},onClick(fn:any){button.onclick=fn;return api;}};callback(api);return this;}
   addToggle(callback:any){const input=create(this.controls,'input',{type:'checkbox'}) as HTMLInputElement;const api={setValue(value:boolean){input.checked=value;return api;},onChange(fn:any){input.onchange=()=>fn(input.checked);return api;}};callback(api);return this;}
   addDropdown(callback:any){const input=create(this.controls,'select') as HTMLSelectElement;const api={addOption(value:string,text:string){create(input,'option',{value,text});return api;},setValue(value:string){input.value=value;return api;},onChange(fn:any){input.onchange=()=>fn(input.value);return api;}};callback(api);return this;}
+  addTextArea(callback:any){const input=create(this.controls,'textarea') as HTMLTextAreaElement;const api={setValue(value:string){input.value=value;return api;},onChange(fn:any){input.onchange=()=>fn(input.value);return api;}};callback(api);return this;}
   addText(callback:any){const input=create(this.controls,'input') as HTMLInputElement;const api={setValue(value:string){input.value=value;return api;},onChange(fn:any){input.onchange=()=>fn(input.value);return api;}};callback(api);return this;}
 }
 export async function requestUrl(){throw Error('Networking is disabled in the component preview.');}

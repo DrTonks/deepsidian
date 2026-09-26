@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { completionBridge } from './completion/bridge.mjs';
 const req = createRequire(join(process.env.DEEPSIDIAN_DSH_PACKAGE, 'package.json'));
 const { defineTool } = await import(pathToFileURL(req.resolve('@deepseek-ai/dsh-tools')).href);
 const { createUserMessage } = await import(pathToFileURL(req.resolve('@deepseek-ai/dsh-llm')).href);
@@ -18,9 +19,11 @@ export function apply(ctx) {
   const submissions = new Map();
   const route = JSON.parse(process.env.DEEPSIDIAN_ROUTE);
   const notify = (method, params) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n');
+  const completion = completionBridge(ctx, createUserMessage, (id, payload) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, ...payload }) + '\n'));
   const input = createInterface({ input: process.stdin });
   input.on('line', line => {
     let frame; try { frame = JSON.parse(line); } catch { return; }
+    if (completion.handle(frame)) return;
     if (frame.method === 'deepsidian/models') {
       const catalog = async () => {
         const choices = [];
@@ -145,6 +148,6 @@ export function apply(ctx) {
     }));
   }
   ctx.on('agent/assistant-stream', ({ agent, frame }) => notify('deepsidian.stream', { sessionId: String(agent.id), frame }));
-  ctx.on('dispose', async () => { input.close(); for (const p of pending.values()) { p.cleanup(); p.reject(Error('Runtime disposed')); } pending.clear(); await Promise.all([...handles.values()].map(h => h.dispose())); });
+  ctx.on('dispose', async () => { input.close(); for (const p of pending.values()) { p.cleanup(); p.reject(Error('Runtime disposed')); } pending.clear(); await Promise.all([completion.dispose(), ...[...handles.values()].map(h => h.dispose())]); });
   notify('deepsidian.ready', { version: 1 });
 }

@@ -227,3 +227,6 @@
 .ds-branch-origin { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; font-size: var(--font-smallest); color: var(--text-muted); }
 .ds-branch-origin span { overflow-wrap: anywhere; }
 .ds-context-manifest { font-size: var(--font-smallest); color: var(--text-muted); margin: 6px 0; overflow-wrap: anywhere; }
+
+/* Editor-only preview: never part of the Markdown document. */
+.deepsidian-completion-ghost { color: var(--text-faint); opacity: .8; pointer-events: none; white-space: pre-wrap; }

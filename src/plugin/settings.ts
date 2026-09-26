@@ -21,6 +21,7 @@ export class DeepsidianSettings extends PluginSettingTab {
     const common=this.section(el,'common','常规','连接与默认模型',true);
     const memory=this.section(el,'memory','长期记忆','读取、AI管理与闲时整理',true);
     const network=this.section(el,'network','网络工具','搜索与网页读取',true);
+    const completion=this.section(el,'completion','实验性补全','手动请求 · Tab 接受',false);
     const advanced=this.section(el,'advanced','高级运行时','Node.js与DSH路径，通常无需修改',false);
     const updates=this.section(el,'updates','更新与诊断','版本检查及连接排查',false);
     new Setting(updates).setName('首次使用与连接诊断').addButton(b => b.setButtonText('打开引导').onClick(() => new SetupModal(this.plugin).open()));
@@ -43,6 +44,14 @@ export class DeepsidianSettings extends PluginSettingTab {
         await this.plugin.disconnect(); this.plugin.state.settings[key] = value; await this.plugin.persist();
       }));
     }
+    new Setting(completion).setName('启用手动笔记补全').setDesc('默认关闭。通过命令“请求当前位置补全（实验）”生成单行灰字，Tab 接受、Esc 丢弃。光标前后少量正文会发送给付费 deepseek-official / deepseek-flash；不读取聊天、记忆或关联笔记。不会自动触发。').addToggle(t=>t.setValue(this.plugin.state.settings.completionEnabled).onChange(async value=>{
+      try{await this.plugin.setCompletion({completionEnabled:value});}catch(error){t.setValue(this.plugin.state.settings.completionEnabled);new Notice(String(error));}
+    }));
+    new Setting(completion).setName('排除文件或目录').setDesc('每行一个库内路径，例如 私人 或 日记/草稿.md；匹配该文件或目录内全部文件。不支持通配符。').addTextArea(input=>input.setValue(this.plugin.state.settings.completionExcluded).onChange(async value=>{
+      try{await this.plugin.setCompletion({completionExcluded:value});}catch(error){new Notice(String(error));}
+    }));
+    const completionBudget=this.plugin.state.completionBudget;
+    new Setting(completion).setName('补全调用额度').setDesc(`本库按 UTC 日期每天最多 200 次，每分钟 10 次，间隔至少 2 秒；发出前保存预占额度，失败与取消不退还。调用额度不是金额上限。${completionBudget?` ${completionBudget.day}：${completionBudget.calls}/200 次，展示 ${completionBudget.shown} 次，接受 ${completionBudget.accepted} 次。`:''}`);
     const text = (key: keyof Settings, title: string, desc: string) => new Setting(advanced).setName(title).setDesc(desc).addText(input => input.setValue(String(this.plugin.state.settings[key])).onChange(async value => {
       (this.plugin.state.settings as any)[key] = value; await this.plugin.persist();
     }));
