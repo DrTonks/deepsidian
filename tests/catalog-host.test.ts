@@ -45,6 +45,19 @@ test('catalog rechecks a file added after preview and never overwrites it or cre
   assert.equal(await readFile(join(root,'posts/note.md'),'utf8'),original);
 });
 
+test('catalog previews and creates a published-date Astro schema without altering the article',async()=>{
+  const {root,modal,metadataCache}=await fixture();
+  const original='---\ntitle: 合成博客文章\npublished: 2026-09-26\ncategory: 开发\ntags: [astro]\ndraft: false\n---\n合成正文\n';
+  await writeFile(join(root,'posts/note.md'),original);
+  metadataCache.getFileCache=()=>({frontmatter:{title:'合成博客文章',published:'2026-09-26',category:'开发',tags:['astro'],draft:false}} as any);
+  await modal.preview();
+  assert.equal(modal.plan.missing.published,0);
+  await modal.create();
+  assert.match(await readFile(join(root,'_本地管理/文章管理.base'),'utf8'),/if\(note\.published, note\.published, if\(date, date, pubDate\)\)/);
+  assert.match(await readFile(join(root,'_本地管理/文章导航.md'),'utf8'),/- published：0 篇缺失/);
+  assert.equal(await readFile(join(root,'posts/note.md'),'utf8'),original);
+});
+
 test('catalog preserves the first output and accurately reports failure of the second',async()=>{
   const {root,modal,vault,created,original}=await fixture();await modal.preview();
   const create=vault.create;vault.create=async(path,text)=>{if(path.endsWith('.md'))throw Error('模拟磁盘空间不足');return create(path,text);};

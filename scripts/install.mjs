@@ -7,4 +7,4 @@ await access(join(vault, '.obsidian'));
 const destination = join(vault, '.obsidian/plugins/deepsidian');
 await mkdir(destination, { recursive: true });
 for (const file of ['main.js', 'manifest.json', 'styles.css', 'bridge.mjs', 'THIRD-PARTY-NOTICES.txt']) await copyFile(join('dist', file), join(destination, file));
-console.log(`Installed ${destination}. Enable Deepsidian in Obsidian community plugins.`);
+console.log(`Installed ${destination}. Enable Deepseedian in Obsidian community plugins.`);

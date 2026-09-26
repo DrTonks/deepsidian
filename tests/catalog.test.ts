@@ -26,6 +26,23 @@ test('catalog destinations and labels escape Markdown syntax and exclude output 
   assert.match(buildCatalog([{path:'x.md'}],'','a/b').navigation,/\.\.\/\.\.\/x.md/);
 });
 
+test('Astro published dates are present and take priority in the generated Base without changing source metadata',()=>{
+  const articles=[
+    {path:'posts/astro.md',frontmatter:{title:'Astro 合成文章',published:'2026-09-26',category:'开发',tags:['astro'],draft:false}},
+    {path:'posts/combined.md',frontmatter:{published:'2026-09-26',date:'2025-01-01',pubDate:'2024-01-01'}},
+    {path:'posts/date.md',frontmatter:{published:'',date:'2026-09-25'}},
+    {path:'posts/pubdate.md',frontmatter:{published:null,pubDate:'2026-09-24'}},
+    {path:'posts/undated.md',frontmatter:{published:'',date:null,pubDate:''}},
+  ];
+  const before=structuredClone(articles),plan=buildCatalog(articles,'posts','_本地管理');
+  assert.equal(plan.missing.published,1);
+  assert.match(plan.navigation,/- published：1 篇缺失/);
+  const formula=JSON.parse(plan.base.split('\n').find(line=>line.startsWith('  published: '))!.slice('  published: '.length));
+  assert.equal(formula,'if(note.published, note.published, if(date, date, pubDate))');
+  assert.match(plan.base,/formula\.published:\n    displayName: "发布日期"/);
+  assert.deepEqual(articles,before);
+});
+
 test('catalog relative paths reject traversal, absolute, hidden, stream and Windows aliases',()=>{
   for(const path of ['../notes','a/../b','/tmp','C:/notes','a\\b','.obsidian','a/.secret','a//b','a/','a/CON.txt','a/NUL','a/b.','a/b ','a:name'])assert.throws(()=>catalogPath(path));
   assert.equal(catalogPath('',true),'');assert.equal(catalogPath('posts/学习'),'posts/学习');assert.throws(()=>catalogPath(''));

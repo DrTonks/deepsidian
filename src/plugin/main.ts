@@ -6,6 +6,7 @@ import type {Editor, MarkdownFileInfo} from 'obsidian';
 import {matchesSourceRevision} from './source-revision';
 import { contextManifest } from './learning-context';
 import { TESTED_DSH } from './versions';
+import { embeddedBridgePath } from './embedded-bridge';
 import { Plugin, MarkdownView, Notice, FileSystemAdapter, TFile, addIcon } from 'obsidian';
 import { join } from 'node:path';
 import { relative, isAbsolute } from 'node:path';
@@ -240,7 +241,7 @@ export default class Deepsidian extends Plugin {
     }});
     this.addCommand({id:'dismiss-completion',name:'取消当前补全',callback:()=>this.cancelCompletion()});
     this.registerView(VIEW, leaf => new LearningView(leaf, this));
-    this.addRibbonIcon('deepsidian-whale', 'Deepsidian 学习助手', () => void this.open());
+    this.addRibbonIcon('deepsidian-whale', 'Deepseedian 学习助手', () => void this.open());
     this.addCommand({ id: 'open', name: '打开学习侧栏', callback: () => void this.open() });
     this.addCommand({id:'catalog',name:'整理文章目录',callback:()=>new CatalogModal(this).open()});
     this.addCommand({id:'context',name:'预览来源与关联笔记',callback:()=>new SourcesModal(this).open()});
@@ -248,7 +249,7 @@ export default class Deepsidian extends Plugin {
       void this.prepareSelection(editor,view).catch(error=>new Notice(String(error)));
     } });
     this.registerEvent(this.app.workspace.on('editor-menu',(menu,editor,view)=>{
-      menu.addItem(item=>item.setTitle('向 Deepsidian 提问').setIcon('message-circle').onClick(()=>{
+      menu.addItem(item=>item.setTitle('向 Deepseedian 提问').setIcon('message-circle').onClick(()=>{
         void this.prepareSelection(editor,view).catch(error=>new Notice(String(error)));
       }));
     }));
@@ -305,7 +306,9 @@ export default class Deepsidian extends Plugin {
     if(!(this.app.vault.adapter instanceof FileSystemAdapter))throw Error('仅支持桌面端');
     const base=this.app.vault.adapter.getBasePath();
     const directory=join(base,this.manifest.dir??`${this.app.vault.configDir}/plugins/${this.manifest.id}`);
-    return runOrganizer({packageRoot:env.root,nodePath:env.node,dshHome:env.home,runtimeHome:join(directory,'.memory-runtime'),bridgePath:join(directory,'bridge.mjs'),cwd:base,...env.model},prompt,signal);
+    const bridgePath=await embeddedBridgePath(join(directory,'.runtime'));
+    signal.throwIfAborted();
+    return runOrganizer({packageRoot:env.root,nodePath:env.node,dshHome:env.home,runtimeHome:join(directory,'.memory-runtime'),bridgePath,cwd:base,...env.model},prompt,signal);
   }
   async applyMemoryProposals(batch:ProposalBatch,selected:number[],pendingId?:string) {
     this.memoryActivity();
@@ -537,8 +540,10 @@ export default class Deepsidian extends Plugin {
     if (!(this.app.vault.adapter instanceof FileSystemAdapter)) throw Error('此插件目前仅支持桌面端本地笔记库');
     const base = this.app.vault.adapter.getBasePath();
     const directory = join(base, this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`);
+    const bridgePath = await embeddedBridgePath(join(directory, '.runtime'));
+    if(this.disposed)throw Error('插件已关闭');
     this.status = '正在连接本地 DSH…'; this.view?.refreshStatus();
-    this.client = new DshClient({ packageRoot: env.root, nodePath: env.node, dshHome: env.home, runtimeHome: join(directory, '.runtime'), bridgePath: join(directory, 'bridge.mjs'), cwd: base, ...env.model, reasoningEffort: this.state.settings.reasoningEffort, maxTokens: this.state.settings.maxTokens, webSearch: this.state.settings.webSearch, webFetch: this.state.settings.webFetch, manageMemory:this.state.settings.manageMemory },
+    this.client = new DshClient({ packageRoot: env.root, nodePath: env.node, dshHome: env.home, runtimeHome: join(directory, '.runtime'), bridgePath, cwd: base, ...env.model, reasoningEffort: this.state.settings.reasoningEffort, maxTokens: this.state.settings.maxTokens, webSearch: this.state.settings.webSearch, webFetch: this.state.settings.webFetch, manageMemory:this.state.settings.manageMemory },
       (name, args) => this.handleTool(name, args), (method, data) => this.onRuntime(method, data));
     const client=this.client;
     try {await client.start(); if(this.disposed)throw Error('插件已关闭');}

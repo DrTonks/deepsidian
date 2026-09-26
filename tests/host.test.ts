@@ -6,7 +6,7 @@ import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 await mkdir('.runs',{recursive:true});const dir=await mkdtemp(resolve('.runs/host-test-'));
 const outfile=join(dir,'host.mjs');
-await build({stdin:{contents:"export {default} from './src/plugin/main.ts'; export {DshClient} from './src/plugin/dsh.ts'; export {FileSystemAdapter,MarkdownView} from 'obsidian';",resolveDir:process.cwd()},outfile,bundle:true,platform:'node',format:'esm',alias:{obsidian:resolve('tests/host-obsidian.ts')}});
+await build({stdin:{contents:"export {default} from './src/plugin/main.ts'; export {DshClient} from './src/plugin/dsh.ts'; export {FileSystemAdapter,MarkdownView} from 'obsidian';",resolveDir:process.cwd()},outfile,bundle:true,platform:'node',format:'esm',define:{__DEEPSIDIAN_BRIDGE_SOURCE__:JSON.stringify('// Synthetic host fixture; DshClient is mocked in this test.')},alias:{obsidian:resolve('tests/host-obsidian.ts')}});
 const {default:Base,DshClient,FileSystemAdapter,MarkdownView}=await import(pathToFileURL(outfile).href);
 class Deepsidian extends Base { constructor(){super();this.state.settings.useMemory=false;this.app.workspace.getActiveViewOfType=()=>null;} }
 

@@ -59,7 +59,7 @@ export class LearningView extends ItemView {
     });
   }
   getViewType() { return VIEW; }
-  getDisplayText() { return 'Deepsidian'; }
+  getDisplayText() { return 'Deepseedian'; }
   getIcon() { return 'deepsidian-whale'; }
   async onOpen() {
     this.closed = false; this.addChild(this.markdown); this.plugin.attach(this);
@@ -351,7 +351,7 @@ export class LearningView extends ItemView {
       if(message.role==='user')sourcePath=message.source?.path??'';
       const card = this.messages.createDiv(`ds-message ds-${message.role}`);
       card.dataset.sourcePath=sourcePath;card.dataset.messageIndex=String(messageIndex);
-      card.createDiv({ cls: 'ds-label', text: message.role === 'user' ? '你' : `Deepsidian${message.model ? ' · ' + message.model : ''}${message.status ? ' · ' + message.status : ''}` });
+      card.createDiv({ cls: 'ds-label', text: message.role === 'user' ? '你' : `Deepseedian${message.model ? ' · ' + message.model : ''}${message.status ? ' · ' + message.status : ''}` });
       if (message.source?.path) card.createEl('button', { cls: 'ds-source', text: message.source.path }).onclick = () => { void this.plugin.openSource(message.source!.path,'',false,message.source).catch(error=>new Notice(String(error))); };
       if(message.manifest){
         const manifest=message.manifest,detail=card.createEl('details',{cls:'ds-context-manifest'});

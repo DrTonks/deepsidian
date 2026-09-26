@@ -28,7 +28,7 @@ export class CatalogModal extends Modal {
     if(this.message)preview.createEl('p',{text:this.message,attr:{role:'status'}});
     if(this.plan){
       preview.createEl('p',{text:`共 ${this.plan.count} 篇。缺失属性：${Object.entries(this.plan.missing).map(([k,v])=>`${k} ${v}`).join(' · ')}。`});
-      preview.createEl('p',{text:'兼容 title、category/categories、tags、date/pubDate、draft；草稿需为布尔值。属性类型不统一时请在原文中核对。只扫描 Markdown，隐藏路径与符号链接不参与；导航为静态快照，不推断发布日期。'});
+      preview.createEl('p',{text:'兼容 title、category/categories、tags、published/date/pubDate、draft；发布日期优先使用 published，其次 date、pubDate；草稿需为布尔值。属性类型不统一时请在原文中核对。只扫描 Markdown，隐藏路径与符号链接不参与；导航为静态快照，不推断发布日期。'});
       for(const [title,body] of [['文章管理.base',this.plan.base],['文章导航.md（生成区域）',readNavigation(this.plan.navigation).body]]){
         const details=preview.createEl('details');details.createEl('summary',{text:title});const pre=details.createEl('pre',{text:body.slice(0,12000)+(body.length>12000?'\n…预览已截断，生成文件保留全部内容':'')});pre.style.maxHeight='260px';pre.style.overflow='auto';pre.style.whiteSpace='pre-wrap';
       }
