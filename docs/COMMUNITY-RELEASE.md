@@ -2,6 +2,8 @@
 
 0.7.0 首次社区审核未通过：目录预览存在三处静态内联样式赋值，设置页手动创建 HTML 标题。0.7.1 将样式移入 CSS 并使用标准 Setting 标题，同时加入官方 ESLint 本地预检。维护者已授权发布和提交审核；发布完成不等于目录审核通过。截至 2026-09-26，0.7.1（1582b0c）正式扫描为 Completed，无阻断错误，构建逐字节复现通过，已点击 Publish 并确认[公开条目及安装入口](https://community.obsidian.md/plugins/deepsidian)。评分卡为 Health: Excellent / Review: Caution，仍有警告和建议；不表示所有问题均已清零。
 
+> 后续新库验收：截至 2026-09-26 19:37（UTC+8），客户端搜索及直接安装链接仍未找到插件，公开插件清单也未出现该 ID。公开 Release 三文件安装已通过独立新库实测；社区网页公开与客户端可安装需分开确认。详见 [0.7.1 验收记录](VALIDATION-0.7.1.md)。
+
 ## 产品名称与兼容
 
 按用户决定，显示名称已从 Deepsidian 改为 **Deepseedian**，不再含官方列举的 `-sidian` 变体。界面、安装说明和发布 manifest 已同步。插件 ID、安装目录及协议仍保留 `deepsidian`，仓库已更名为 `DrTonks/deepseedian`，已有聊天和设置无需迁移。新名称的唯一性及最终合规性仍以社区提交审核为准，见 [Manifest 规则](https://docs.obsidian.md/Reference/Manifest)。
