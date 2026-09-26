@@ -1,6 +1,18 @@
 # Deepsidian
 
-> 当前分支是 **手动 Tab 补全实验版**，基于 0.6.5。默认关闭：设置 → 实验性补全 → 启用，然后在笔记中执行“请求当前位置补全（实验）”。Tab 接受灰字、Esc 丢弃；暂不自动触发。使用付费 deepseek-official / deepseek-flash。[范围、安装与验证记录](docs/TAB-COMPLETION-EXPERIMENT.md)。
+> 包含默认关闭的 **手动 Tab 补全实验功能**，兼容 0.6.6 选区学习与 DSH 0.1.7-rc.2。默认关闭：设置 → 实验性补全 → 启用，然后在笔记中执行“请求当前位置补全（实验）”。Tab 接受灰字、Esc 丢弃；暂不自动触发。使用付费 deepseek-official / deepseek-flash。[范围、安装与验证记录](docs/TAB-COMPLETION-EXPERIMENT.md)。
+
+## 0.6.6：围绕当前笔记提问
+
+在 Markdown 编辑器中选中术语或段落，右键 **“向 Deepsidian 提问”**；也可在命令面板使用 **“围绕选区或当前段落提问”**，并在 Obsidian 快捷键设置中自行绑定。打开侧栏后补充具体问题，再手动发送。已有问题草稿会保留，不会自动调用模型。
+
+选区、附近正文、所在标题、行号与内容版本保存为本会话草稿快照。切换笔记或重启后不会偷偷换成另一段；未选中文字时捕捉光标附近内容。选区最多6000字符、附近正文最多10000字符，截断会标注。可从输入框文件标识展开查看，移除后停止附带笔记；点击“使用当前选区”可恢复跟随当前笔记。
+
+点击历史选区来源时，未变化的正文定位原行；已变化则提示并打开当前版本，不将旧行号冒充当前定位。明确标题/块引用仍优先解析其当前位置。来源预览中的 Markdown 也会记录读取时版本。无版本记录的旧消息不具备变化检测。
+
+![选区快照预览](docs/screenshots/selection-0.6.6.png)
+
+截图为生产侧栏组件、合成数据和模拟宿主。关联读取继续按需调用现有工具，不自动把候选全文加入上下文；分支结论回传不属于当前功能。
 
 
 ## 0.6.5：上下文清单与独立草稿
@@ -98,13 +110,15 @@ Deepsidian 是桌面端 Obsidian 插件：在侧栏与本地 DSH 运行时对话
 从 [Node.js 官网](https://nodejs.org/en/download) 安装 Node.js 24 或更新版本，然后在系统终端执行：
 
 ```sh
-npm install -g @deepseek-ai/dsh@0.1.6-alpha.2
+npm install -g @deepseek-ai/dsh@0.1.7-rc.2
 dsh web
 ```
 
 在 DSH Web 页面完成模型供应商配置并验证一次对话。API key 由 DSH 管理，Deepsidian 不提供自己的密钥输入框。配置完后可以关闭 DSH Web 服务；插件使用独立运行时。[DSH 官方说明](https://github.com/deepseek-ai/deepseek-harness)
 
-2026-09-19 已验证运行时基线为 `0.1.6-alpha.2`（npm `alpha`，`latest/next` 当时均为 `0.1.5-rc.2`）。新版默认采用 Messages 协议；已有显式旧官方 baseURL 应依照 DSH 升级说明改用 `https://api.deepseek.com/anthropic` 或明确保留 `chat-completions`，插件不擅自改写供应商配置。主包精确版本仍可能通过上游依赖范围拉入较新子包，安装后请运行 `npm run doctor` 核对组件，再做集成验证。安装 Node/DSH 后重启 Obsidian。引导提供官方链接、可复制安装命令、路径覆盖及连接诊断；**目前是引导式手动安装，不是一键静默下载器**。
+2026-09-26 已验证运行时基线为 `0.1.7-rc.2`（npm `next`；`latest` 当时为 `0.1.5-rc.3`，请使用上面的精确版本）。官方 DeepSeek 适配器只支持 Messages，旧 `llm-deepseek.protocol` 字段必须移除，官方 baseURL 为 `https://api.deepseek.com/anthropic`；其他 Chat Completions 供应商通过 `llm-pi-ai` 配置。插件遇到旧协议字段会明确提示，不擅自改写供应商配置。安装后运行 `npm run doctor` 核对组件，并重启 Obsidian。引导提供官方链接、可复制安装命令、路径覆盖及连接诊断；**目前是引导式手动安装，不是一键静默下载器**。
+
+DSH 0.1.7 已移除旧 `settings-file` 组件。插件在连接时读取 DSH 配置目录中的 `settings.yaml`，并依次应用 `profiles/sdk-minimal/cordis.patch.yml`、`cordis.patch.yml` 中明确按 id 配置的 `llm-deepseek`、`llm-pi-ai`、`web-search-deepseek` 和 `agent-default-model`；高优先级条目的 config 整体替换前一层。只支持普通 YAML 数据，不执行 `!!js` 或导入其他工具插件。仅存在于 Web/Desktop profile 中的设置需要将所需供应商配置放入上述共享文件；不会从 `settings.yaml.imported` 恢复过期配置。密钥仍由 DSH 凭据服务读取；配置修改后重新连接生效。
 
 macOS 从 Finder 启动 Obsidian 时，应用的 PATH 可能与终端不同。若“检查并连接”提示找不到 DSH 或 Node，在终端执行 `npm root -g` 与 `command -v node`：将第一个结果追加 `/@deepseek-ai/dsh` 填入“DSH 包目录”，将第二个结果填入“Node 可执行文件”。请使用完整绝对路径；Apple Silicon 的 Homebrew 安装通常位于 `/opt/homebrew/lib/node_modules/@deepseek-ai/dsh` 和 `/opt/homebrew/bin/node`，以命令实际输出为准。Windows 可用 `where.exe node` 定位 Node。
 

@@ -7,6 +7,7 @@ import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { DshClient, discover } from '../src/plugin/dsh.ts';
 import { completionBridge } from '../src/plugin/completion/bridge.mjs';
+import { messagesResponse } from './fixtures/messages.ts';
 
 const input = { prefix: '缓存可以', suffix: '。', title: '合成测试' };
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -102,12 +103,12 @@ test('completion JSON preserves spaces and quotes and rejects malformed envelope
   await bridge.dispose();
 });
 
-for (const protocol of ['chat-completions', 'messages']) test(`real DSH ${protocol}: one-shot completion, outcomes, cancellation and chat isolation`, { timeout: 45000 }, async () => {
+test('real DSH Messages: one-shot completion, outcomes, cancellation and chat isolation', { timeout: 45000 }, async () => {
   const env = discover();
   mkdirSync('.runs', { recursive: true });
   const dir = mkdtempSync(resolve('.runs', 'completion-runtime-'));
   const home = join(dir, 'config'); mkdirSync(home);
-  writeFileSync(join(home, 'settings.yaml'), JSON.stringify({ 'llm-deepseek': { protocol } }));
+  writeFileSync(join(home, 'settings.yaml'), '{}');
   let mode = 'stop'; let requests = 0; let chatEnds = 0; let chatHeld = false;
   let held!: () => void;
   let releaseChat!: () => void;
@@ -115,25 +116,22 @@ for (const protocol of ['chat-completions', 'messages']) test(`real DSH ${protoc
   const emit = (res: ServerResponse, content: string, outcome: string, close = true) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
     const event = (value: object) => res.write(`data: ${JSON.stringify(value)}\n\n`);
-    if (protocol === 'chat-completions') {
-      event({ choices: [{ index: 0, delta: { content }, finish_reason: null }] });
-      if (close) {
-        if (outcome !== 'missing') { event({ choices: [{ index: 0, delta: {}, finish_reason: outcome === 'max-tokens' ? 'length' : 'stop' }], usage: { prompt_tokens: 20, completion_tokens: 3, total_tokens: 23 } }); res.write('data: [DONE]\n\n'); }
-        res.end();
+    event({ type: 'message_start', message: { id: 'synthetic', type: 'message', role: 'assistant', content: [], model: 'deepseek-flash', usage: { input_tokens: 20, output_tokens: 0 } } });
+    event({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
+    event({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: content } });
+    if (close) {
+      if (outcome !== 'missing') {
+        event({ type: 'content_block_stop', index: 0 });
+        event({ type: 'message_delta', delta: { stop_reason: outcome === 'max-tokens' ? 'max_tokens' : 'end_turn' }, usage: { output_tokens: 3 } });
+        event({ type: 'message_stop' });
       }
-    } else {
-      event({ type: 'message_start', message: { id: 'synthetic', role: 'assistant', content: [], model: 'deepseek-flash', usage: { input_tokens: 20, output_tokens: 0 } } });
-      event({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
-      event({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: content } });
-      if (close) {
-        if (outcome !== 'missing') { event({ type: 'content_block_stop', index: 0 }); event({ type: 'message_delta', delta: { stop_reason: outcome === 'max-tokens' ? 'max_tokens' : 'end_turn' }, usage: { output_tokens: 3 } }); event({ type: 'message_stop' }); }
-        res.end();
-      }
+      res.end();
     }
   };
   const server = createServer(async (req, res) => {
     try {
       let body = ''; for await (const chunk of req) body += chunk;
+      assert.equal(req.url, '/v1/messages', 'DSH 0.1.7 official provider only uses Messages');
       const data = JSON.parse(body);
       if (data.tools?.length) {
         if (chatHeld) { releaseChat = () => emit(res, 'CHAT-ANSWER', 'stop'); held(); return; }
@@ -143,9 +141,14 @@ for (const protocol of ['chat-completions', 'messages']) test(`real DSH ${protoc
       assert.equal(req.headers['x-deepseek-harness-session-id'], undefined);
       assert.equal(data.model, 'deepseek-flash'); assert.equal(data.max_tokens, 128);
       assert.deepEqual(data.thinking, { type: 'disabled' });
+      assert.equal(data.output_config, undefined, 'disabled reasoning must not inherit the chat effort');
+      assert.match(data.system, /笔记内联补全器/);
+      assert.equal(data.messages.length, 1);
+      assert.equal(data.messages[0].role, 'user');
       assert.equal((data.tools ?? []).length, 0);
       assert.match(JSON.stringify(data.messages), /缓存可以/);
       assert.doesNotMatch(JSON.stringify(data), /CHAT-QUESTION/);
+      if (mode === 'tool') { messagesResponse(res, { tool: { id: 'unexpected', name: 'obsidian_read', input: { path: 'private.md' } } }); return; }
       if (mode === 'error') { res.writeHead(429); res.end('{"error":{"message":"synthetic rate limit"}}'); return; }
       emit(res, JSON.stringify({text: mode === 'marker' ? '' : '减少重复计算'}), mode, mode !== 'hold');
       if (mode === 'hold') held();
@@ -170,7 +173,7 @@ for (const protocol of ['chat-completions', 'messages']) test(`real DSH ${protoc
     assert.equal(files.some(file => file.endsWith('.jsonl')), false, 'completion creates no durable chat session');
     mode = 'marker';
     assert.equal((await client.complete(input, new AbortController().signal)).text, '', 'abstention marker must never reach the editor');
-    for (const scenario of ['max-tokens', 'missing', 'error']) {
+    for (const scenario of ['max-tokens', 'missing', 'error', 'tool']) {
       mode = scenario; const before = requests;
       await assert.rejects(client.complete(input, new AbortController().signal));
       assert.equal(requests, before + 1, 'failed completion never retries');
@@ -188,7 +191,7 @@ for (const protocol of ['chat-completions', 'messages']) test(`real DSH ${protoc
     await completionReached; controller.abort(); await cancelled; await released(client);
     assert.ok(client.connected); releaseChat(); assert.equal((await chat).kind, 'completed'); chatHeld = false;
     mode = 'stop'; assert.equal((await client.complete(input, new AbortController().signal)).text, '减少重复计算');
-    if (protocol === 'chat-completions') {
+    {
       mode = 'hold'; const before = requests; const started = Date.now();
       await assert.rejects(client.complete(input, new AbortController().signal), /8 秒|超时/);
       assert.ok(Date.now() - started >= 7900); await released(client);

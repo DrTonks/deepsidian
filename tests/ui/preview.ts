@@ -35,6 +35,7 @@ const trace=[
 ];
 const chat:Chat={id:'00000000-0000-4000-8000-000000000001',title:'理解 KV cache',systemPrompt:'你是学习笔记助手。根据用户明确背景解释，并使用 [[笔记路径]] 标明来源。',messages:[{role:'user',text:'结合我的注意力机制笔记，解释 KV cache 的作用。',source:{path:'学习笔记/注意力机制.md',selection:'自回归生成',nearby:'已记录 Query、Key、Value 与注意力公式。'}},{role:'assistant',text:answer,model:'deepseek-flash',status:'完成',elapsedMs:4320,reasoning:'先查看已提供的笔记结构，再从前端增量计算的角度解释 KV cache，区分计算复用与显存占用。',trace}]};
 const screen=new URLSearchParams(location.search).get('screen') ?? 'chat';
+if(screen==='selection')chat.draft={text:'这段话中的 KV cache 是什么意思？请结合上下文解释。',context:{path:'学习笔记/注意力机制.md',selection:'生成下一个 token 时，可以复用已计算的 Key 和 Value。',nearby:'## 自回归生成\n注意力计算涉及 Query、Key 和 Value。缓存减少重复计算，但需要额外显存。',heading:'自回归生成',startLine:12,endLine:12,revision:'synthetic-selection-snapshot',pinned:true}};
 let memoryEntries=[{id:'preview',text:'熟悉前端，首次出现的 agent 术语需要简短解释。',source:'合成预览记录',createdAt:'2026-09-13'}];
 let memoryRules='# 整理规则\n仅保存用户明确表达的持久偏好。';
 let previewUndoAvailable=true;
@@ -68,7 +69,7 @@ const plugin:any={
  },
  app:{workspace:{getActiveViewOfType:()=>null,openLinkText:async()=>{},getLeavesOfType:()=>[]},vault:{getFiles:()=>[],readBinary:async()=>new ArrayBuffer(0)}},
  sidebarActivated(){}, async selectChat(id:string){this.state.activeId=id;},
- attach(view:any){this.view=view;},detach(){},capture(){},persist:async()=>{},
+ attach(view:any){this.view=view;},detach(){},capture(){if(this.includeContext&&this.chat?.draft?.context)this.source={...this.chat.draft.context};},clearPinnedContext(){if(this.chat?.draft)delete this.chat.draft.context;},persist:async()=>{},
  resolveEnvironment(){return {model:{provider:this.state.settings.provider||'deepseek-official',model:this.state.settings.model||'deepseek-flash'},versions:{dsh:TESTED_DSH}};},
  connect:async()=>{throw Error('组件预览不启动 DSH，请在 Obsidian 中连接。');},disconnect:async()=>{},
  newChat(){this.state.chats.unshift({id:'new',title:'新对话',messages:[]});this.state.activeId='new';this.view.renderMessages();this.view.refreshChats();},

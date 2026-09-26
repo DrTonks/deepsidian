@@ -142,3 +142,10 @@ npm run preview
 - `src/plugin/sources-modal.ts`：只读来源预览与关联候选，选择后交给 view 的附件队列。
 - `main.ts` 冻结当前来源，管理笔记工具次数/字符预算与晚到结果；`bridge.mjs` 注册工具，`dsh.ts` 向模型说明如何使用。
 - 离线测试：`tests/knowledge.test.ts`、`tests/catalog.test.ts`、`tests/catalog-host.test.ts`、`tests/host.test.ts`。`npm run live:knowledge` 为真实官方付费合成测试，输出仅留 `.runs/`，不读取个人库；`npm run preview` 的 `?screen=context-tests` 验证来源界面。
+
+
+## 0.6.6 选区学习链路
+
+`editor-menu / explain-selection → main.prepareSelection → selection-context.ts → Chat.draft.context → capture → ask`。prepareSelection立即读取编辑器，再验证路径和保存；context随会话草稿持久化，发送接受后清除草稿。selection-context是可测试的纯函数，记录有界片段、ATX标题、位置与全文SHA256。main.openSource使用revision发现变化，明确#目标优先于旧选区行号。普通当前笔记仍是发送时捕获，手动快照则保持原样，清单会解释区别。
+
+`npm run live:selection` 使用官方付费合成案例验证片段回答、按需关联读取和资料中指令的隔离；报告在.runs。浏览器 `?screen=selection` 展示快照，`?screen=learning-tests` 验证草稿隔离与移除。不把宿主模拟测试称为原生右键菜单验收。

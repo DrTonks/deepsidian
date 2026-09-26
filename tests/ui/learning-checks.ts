@@ -42,6 +42,21 @@ export async function checkLearning(plugin:any,view:any){
     check(view.pendingFiles().length===1&&view.pendingFiles()[0].text==='source','current chat accepts vault file');
     view.removePendingFile(view.pendingFiles()[0].id);
   } finally {plugin.app.vault.readBinary=readBinary;}
+  const selected={path:'学习笔记/注意力机制.md',selection:'复用 Key 和 Value',nearby:'周围的解释',heading:'自回归生成',startLine:12,endLine:13,revision:'synthetic-selected-revision',pinned:true};
+  plugin.includeContext=true;plugin.chat.draft.context={...selected};plugin.capture();view.refreshContext();
+  const chip=document.querySelector<HTMLElement>('.ds-file-chip')!;
+  check(chip.textContent!.includes('选区快照 · 行 12–13'),'selection chip identifies pinned line range');
+  const preview=chip.querySelector<HTMLButtonElement>('button[aria-label^="查看本次编辑上下文"]')!;
+  preview.click();
+  const excerpt=document.querySelector<HTMLElement>('.ds-context pre')!;
+  check(!excerpt.hidden&&excerpt.textContent!.includes('标题：自回归生成')&&excerpt.textContent!.includes('复用 Key 和 Value'),'selection expands snapshot and heading');
+  const selectedContext=new ComposerContextModal(plugin,view);selectedContext.open();
+  check(selectedContext.contentEl.textContent!.includes('synthetic-selected-revision'),'context manifest previews pinned snapshot');
+  selectedContext.close();
+  chip.querySelector<HTMLButtonElement>('button[aria-label="移除当前文件"]')!.click();
+  check(!plugin.chat.draft.context&&!plugin.source.path&&!plugin.includeContext,'selection removal clears persisted draft context');
+  plugin.capture();view.refreshContext();
+  check(!document.querySelector('.ds-file-chip'),'removed selection does not reappear after capture');
   check(!document.body.textContent!.includes('带回父对话'),'no return workflow');
-  document.body.createEl('p',{text:'ALL LEARNING CHECKS PASSED: draft restore, chat isolation, context removal, deferred vault attachment isolation, no return workflow'});
+  document.body.createEl('p',{text:'ALL LEARNING CHECKS PASSED: draft restore, chat isolation, context removal, deferred vault attachment isolation, pinned selection preview and removal, no return workflow'});
 }

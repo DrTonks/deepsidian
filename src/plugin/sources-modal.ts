@@ -10,7 +10,7 @@ export class SourcesModal extends Modal {
   private async draw(){
     this.contentEl.addClass('ds-memory-modal');this.modalEl.addClass('ds-memory-dialog');
     this.contentEl.createEl('h2',{text:'本轮来源与关联笔记'});
-    this.plugin.capture();const source={...this.plugin.source};
+    this.plugin.capture();const source={...this.plugin.source},chatId=this.plugin.chat?.id;
     this.contentEl.createEl('p',{text:'预览留在本地；点击“附加片段”后才会随下次提问发送。当前笔记和附件可在输入框上方移除。最多4个附件，单片段最多6000字符；包含记忆的初始请求最多40000字符，超限会保留草稿。'});
     const selected=this.plugin.sourceSummary();
     for(const item of [{name:source.path||'无当前笔记',text:source.selection||source.nearby},...selected]){
@@ -29,9 +29,9 @@ export class SourcesModal extends Modal {
         preview.empty();preview.createEl('p',{text:`${result.path}${result.startLine?` · 行 ${result.startLine}–${result.endLine}`:''}${(result.truncated||String(result.content??'').length>6000)?' · 片段已截断':''}`});
         const content=String(result.content??'').slice(0,6000);preview.createEl('pre',{text:content,cls:'ds-proposal-text'});
         const open=preview.createEl('button',{text:'跳转原文'});
-        open.onclick=()=>{void this.plugin.openSource(result.path+(result.subpath?'#'+result.subpath:''),source.path).then(()=>this.close()).catch(error=>new Notice(String(error)));};
+        open.onclick=()=>{void this.plugin.openSource(result.path+(result.subpath?'#'+result.subpath:''),source.path,false,{path:result.path,selection:'',nearby:'',revision:result.revision,startLine:result.startLine}).then(()=>this.close()).catch(error=>new Notice(String(error)));};
         const attach=preview.createEl('button',{text:'附加片段'});
-        attach.onclick=()=>{try{this.plugin.attachSource(`${result.path}${result.startLine?`:${result.startLine}`:''}`,content);new Notice('已附加，可在发送前移除');attach.disabled=true;}catch(error){new Notice(String(error));}};
+        attach.onclick=()=>{try{if(this.plugin.chat?.id!==chatId)throw Error('会话已切换，请重新打开来源预览');this.plugin.attachSource(`${result.path}${result.startLine?`:${result.startLine}`:''}`,content);new Notice('已附加，可在发送前移除');attach.disabled=true;}catch(error){new Notice(String(error));}};
       }catch(error){if(!this.closed&&serial===generation){preview.empty();preview.createEl('p',{text:String(error)});}}
     };
     button.onclick=()=>void resolve(input.value.trim());input.onkeydown=event=>{if(event.key==='Enter'&&!event.isComposing){event.preventDefault();void resolve(input.value.trim());}};

@@ -1,3 +1,4 @@
+import {sourceRevision} from './source-revision.ts';
 import type {App, TFile} from 'obsidian';
 
 const MAX_SCAN = 2000;
@@ -87,7 +88,8 @@ export class KnowledgeTools {
       const resolved=target?this.app.metadataCache.getFirstLinkpathDest(target,source):await this.file(source);
       if(!resolved)throw Error('链接目标不存在'); const file=await this.file(resolved.path);
       if(file.stat.size>1_000_000)throw Error('笔记超过 1MB');
-      return {path:file.path,subpath,resolvedFrom:source,notice:'按来源笔记解析链接；重名时采用 Obsidian 的解析结果，请核对返回路径。片段来自当前打开的编辑器或磁盘，不使用旧行号。',...linkedExcerpt(await this.readText(file),subpath)};
+      const text=await this.readText(file);
+      return {path:file.path,subpath,revision:sourceRevision(text),resolvedFrom:source,notice:'按来源笔记解析链接；重名时采用 Obsidian 的解析结果，请核对返回路径。片段来自当前打开的编辑器或磁盘，不使用旧行号。',...linkedExcerpt(text,subpath)};
     }
     if(name==='obsidian_query') {
       const offset=integer(args.offset,0,Number.MAX_SAFE_INTEGER),limit=Math.max(1,integer(args.limit,20,20));

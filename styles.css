@@ -69,7 +69,10 @@
 .deepsidian .ds-messages > * { flex-shrink:0; min-width:0; }
 
 .deepsidian .ds-context { padding:0; background:transparent; }
-.deepsidian .ds-file-chip { display:inline-flex; align-items:center; gap:3px; max-width:100%; color:var(--text-muted); }
+.deepsidian .ds-file-chip { display:inline-flex; flex-wrap:wrap; align-items:center; gap:3px; max-width:100%; color:var(--text-muted); }
+.deepsidian .ds-file-chip > button { flex-shrink:0; }
+.deepsidian .ds-file-chip > span { min-width:0; max-width:calc(100% - 58px); }
+.deepsidian .ds-file-chip > .ds-muted { flex-basis:100%; max-width:100%; padding-left:4px; }
 .deepsidian .ds-file-chip > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
 .deepsidian .ds-onboarding { padding:18px; border:1px solid var(--background-modifier-border); border-radius:12px; font-size:13px; }
 .deepsidian .ds-onboarding p { color:var(--text-muted); line-height:1.6; }

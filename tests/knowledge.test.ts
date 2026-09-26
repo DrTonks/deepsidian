@@ -1,12 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {build} from 'esbuild';
-import {mkdir,mkdtemp} from 'node:fs/promises';
-import {resolve,join} from 'node:path';
-import {pathToFileURL} from 'node:url';
-await mkdir('.runs',{recursive:true});const dir=await mkdtemp(resolve('.runs/knowledge-test-')),outfile=join(dir,'knowledge.mjs');
-await build({entryPoints:['src/plugin/knowledge.ts'],outfile,bundle:true,platform:'node',format:'esm'});
-const {KnowledgeTools,linkedExcerpt,publicPath}=await import(pathToFileURL(outfile).href);
+import {KnowledgeTools,linkedExcerpt,publicPath} from '../src/plugin/knowledge.ts';
 function host(entries:Record<string,{text?:string;fm?:Record<string,unknown>;tags?:string[]}>,links:Record<string,Record<string,number>>={},blocked:string[]=[]) {
   const files=Object.keys(entries).map(path=>({path,basename:path.split('/').at(-1)!.replace(/\.[^.]+$/,''),extension:path.split('.').at(-1),stat:{size:entries[path]!.text?.length??0}}));
   const disclosed:string[]=[],read:string[]=[];
@@ -73,4 +67,18 @@ test('heading resolution preserves literal trailing hashes and strips only separ
   const text='# Languages\n## C#\nC sharp content\n## F# ###\nF sharp content\n## Next\nother';
   assert.equal(linkedExcerpt(text,'C#').content,'## C#\nC sharp content');
   assert.equal(linkedExcerpt(text,'F#').content,'## F# ###\nF sharp content');
+});
+
+test('resolved source revisions agree across editor LF and disk CRLF without hiding content changes',async()=>{
+  const entries={'note.md':{text:'# Topic\n\nparagraph'}};
+  const {tools}=host(entries);
+  const resolve=()=>tools.handle('obsidian_resolve',{link:'note.md#Topic'},'');
+  const editor=await resolve();
+  entries['note.md'].text=entries['note.md'].text.replace(/\n/g,'\r\n');
+  const disk=await resolve();
+  assert.equal(editor.revision,disk.revision);
+  assert.equal(editor.startLine,disk.startLine);
+  assert.equal(editor.content,disk.content);
+  entries['note.md'].text+=' changed';
+  assert.notEqual((await resolve()).revision,editor.revision);
 });

@@ -1,5 +1,5 @@
 // Exact verified DSH compatibility baseline; npm dist-tags may point elsewhere.
-export const TESTED_DSH = '0.1.6-alpha.2';
+export const TESTED_DSH = '0.1.7-rc.2';
 
 export function compareVersions(a: string, b: string) {
   const parse = (v: string) => { const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(v); if (!match) throw Error('无效版本号'); return { core: match.slice(1,4).map(Number), pre: match[4]?.split('.') }; };
