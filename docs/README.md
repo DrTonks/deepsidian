@@ -10,7 +10,7 @@
 | Memory / 本库记忆 | [设计与权限](MEMORY-DESIGN.md) |
 | Architecture / 架构 | [Project map](PROJECT-MAP.md) · [Architecture](ARCHITECTURE.md) |
 | Roadmap / 路线图 | [研究路线图](RESEARCH-ROADMAP.md) |
-| Latest validation / 当前验证 | [0.7.1 验收与社区状态](VALIDATION-0.7.1.md) |
+| Latest validation / 当前验证 | [0.7.2 分支与升级验收](VALIDATION-0.7.2.md) |
 | Earlier validation / 历史验证 | [0.7.0 真实供应商与文章测试](VALIDATION-0.7.0.md) · [macOS](MACOS-VALIDATION.md) · [Live provider](LIVE-VALIDATION.md) |
 | Releases / 发布 | [社区发布指南](COMMUNITY-RELEASE.md) |
 

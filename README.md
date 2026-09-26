@@ -8,7 +8,7 @@
 
 Deepseedian is a desktop Obsidian assistant powered by a locally installed [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) runtime. Ask questions with note context, inspect sources and citations, fork conversations, manage vault memory, generate local article catalogs and Bases, and request manual inline completion.
 
-Version **0.7.1** · [GitHub Releases](https://github.com/DrTonks/deepseedian/releases/tag/0.7.1) · [Community listing](https://community.obsidian.md/plugins/deepsidian). The interface is currently primarily Chinese; an English interface is not yet available.
+Version **0.7.2** · [GitHub Releases](https://github.com/DrTonks/deepseedian/releases/tag/0.7.2) · [Community listing](https://community.obsidian.md/plugins/deepsidian). The interface is currently primarily Chinese; an English interface is not yet available.
 
 ## Highlights
 
@@ -60,7 +60,7 @@ On macOS, Obsidian launched from Finder may have a different PATH from your term
 - The plugin uses Node.js filesystem and child-process APIs to locate and run Node.js/DSH, read configuration and credentials from `~/.dsh` or a custom directory, and read explicitly attached external files. Chats, runtime logs, sent attachments, and memory are stored under the vault's plugin directory. No client-side telemetry is added. Remote services have their own data policies, including [DeepSeek's privacy policy](https://cdn.deepseek.com/policies/zh-CN/deepseek-privacy-policy.html).
 - Note properties such as `draft` or `encrypted` are not access controls. Completion exclusions do not restrict chat tools. Publishing or reviewing this plugin does not require uploading personal articles.
 
-See the [walkthrough](docs/DEMO.md) for note chat, context inspection, forks, catalogs, and manual completion. The [0.7.1 acceptance report](docs/VALIDATION-0.7.1.md) distinguishes manual Release installation from the unresolved community installer check.
+See the [walkthrough](docs/DEMO.md) for note chat, context inspection, forks, catalogs, and manual completion. The [0.7.2 acceptance report](docs/VALIDATION-0.7.2.md) covers numbered forks, upgrade persistence, and release verification.
 
 AI suggestions can be incomplete or factually wrong. Read them before accepting; completion is not a fact-checking tool. The [0.7 validation report](docs/VALIDATION-0.7.0.md) records both successful and failed real-provider cases. Windows/Linux CI does not replace native UI testing, and third-party completion plugins, native input methods, and all themes have not been exhaustively tested. Runtime migration and three-file installation are covered by integration tests.
 

@@ -34,7 +34,7 @@ Under a completed answer, choose **分支到新聊天**. The new chat inherits h
 
 Creating a fork makes no model request. Follow-up messages use the selected provider. Notes and vault memory remain shared; forks do not automatically merge or return conclusions. Restoring the fork after an Obsidian reload was verified separately during this acceptance run.
 
-Unreleased change: newly created branches use numbered title suffixes such as `Title（1）` and `Title（2）`, including forks of a branch. Existing titles are preserved; the screenshot below records the released 0.7.1 format.
+Since 0.7.2: newly created branches use numbered title suffixes such as `Title（1）` and `Title（2）`, including forks of a branch. Existing titles are preserved; the screenshot below records the released 0.7.1 format.
 
 ![Independent conversation branch](screenshots/fork-0.7.1.png)
 

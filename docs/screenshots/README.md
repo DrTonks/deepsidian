@@ -12,4 +12,4 @@ The pointer was parked on the far-left ribbon. The exported images crop the left
 
 See the [walkthrough](../DEMO.md) and [demo notes](../demo-notes). Only `memory-maintenance.png` and `memory-session.png` remain from older versions because [Memory design](../MEMORY-DESIGN.md) still references them. Unreferenced older captures have been removed. The current README uses only the 0.7.1 captures.
 
-The fork capture shows the released 0.7.1 title format. The next unreleased build names new branches with numbered suffixes such as `Title（1）` and `Title（2）`; existing saved titles are preserved.
+The fork capture shows the released 0.7.1 title format. Version 0.7.2 names new branches with numbered suffixes such as `Title（1）` and `Title（2）`; existing saved titles are preserved.
