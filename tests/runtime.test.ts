@@ -7,11 +7,12 @@ import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { DshClient, discover } from '../src/plugin/dsh.ts';
 import { reasoningText } from '../src/plugin/trace.ts';
+import {messagesResponse, toolResults, currentToolResults} from './fixtures/messages.ts';
 test('real DSH bridge: tools, text stream, cancel, followup and process resume', { timeout: 60000 }, async () => {
   const env = discover();
   mkdirSync('.runs', {recursive:true});
   const dir = mkdtempSync(resolve('.runs','bridge-test-'));
-  const home = join(dir,'config'); mkdirSync(home); writeFileSync(join(home,'settings.yaml'),JSON.stringify({'llm-deepseek':{protocol:'chat-completions'}}));
+  const home = join(dir,'config'); mkdirSync(home); writeFileSync(join(home,'settings.yaml'),'{}');
   let hold = false, resumeHistory = false;
   let expectedModel = 'deepseek-chat', expectedTokens = 4096;
   let sawImage = false;
@@ -19,20 +20,17 @@ test('real DSH bridge: tools, text stream, cancel, followup and process resume',
   let onHeld = () => {};
   const server = createServer(async (req,res) => {
     let body = ''; for await(const chunk of req) body += chunk;
-    if (!req.url?.endsWith('/chat/completions')) { res.writeHead(404, {'Content-Type':'application/json'}); res.end('{"error":{"message":"Not supported"}}'); return; }
+    if (req.url !== '/v1/messages') { res.writeHead(404, {'Content-Type':'application/json'}); res.end('{"error":{"message":"Not supported"}}'); return; }
     const input = JSON.parse(body); lastInput = input; requests++;
-    if (input.messages.some((m:any) => Array.isArray(m.content) && m.content.some((c:any) => c.type === 'image_url' && c.image_url.url.startsWith('data:image/')))) sawImage = true;
+    if (input.messages.some((m:any) => Array.isArray(m.content) && m.content.some((c:any) => c.type === 'image' && c.source?.type === 'base64'))) sawImage = true;
     assert.equal(input.model, expectedModel);
     assert.equal(input.max_tokens, expectedTokens);
-    assert.deepEqual(input.tools.map((t:any) => t.function.name).sort(), ['memory_read', 'memory_search', 'obsidian_base', 'obsidian_context', 'obsidian_metadata', 'obsidian_query', 'obsidian_read', 'obsidian_related', 'obsidian_resolve', 'obsidian_search']);
-    if (input.messages.some((m:any) => typeof m.content === 'string' && m.content.includes('FIRST-QUESTION'))) resumeHistory = true;
-    res.writeHead(200, {'Content-Type':'text/event-stream'});
-    const chunk = (delta:object,finish_reason:string|null=null) => res.write(`data: ${JSON.stringify({id:'test',object:'chat.completion.chunk',created:0,model:'deepseek-chat',choices:[{index:0,delta,finish_reason}]})}\n\n`);
-    if (hold) { chunk({content:'partial'}); return; }
-    if (!input.messages.some((m:any) => m.role === 'tool')) {
-      chunk({tool_calls:[{index:0,id:'tool1',type:'function',function:{name:'obsidian_context',arguments:'{}'}}]}); chunk({},'tool_calls');
-    } else { chunk({reasoning_content:'I used the supplied test context.'}); chunk({content:'ANSWER'}); chunk({},'stop'); }
-    res.end('data: [DONE]\n\n');
+    assert.deepEqual(input.tools.map((t:any) => t.name).sort(), ['memory_read', 'memory_search', 'obsidian_base', 'obsidian_context', 'obsidian_metadata', 'obsidian_query', 'obsidian_read', 'obsidian_related', 'obsidian_resolve', 'obsidian_search']);
+    if (JSON.stringify(input.messages).includes('FIRST-QUESTION')) resumeHistory = true;
+    if (hold) { messagesResponse(res,{text:'partial',hold:true}); return; }
+    if (!toolResults(input.messages).length) {
+      messagesResponse(res,{tool:{id:'tool1',name:'obsidian_context',input:{}}});
+    } else { messagesResponse(res,{thinking:'I used the supplied test context.',text:'ANSWER'}); }
   });
   server.listen(0,'127.0.0.1'); await once(server,'listening');
   const oldUrl = process.env.DEEPSEEK_BASE_URL, oldKey = process.env.DEEPSEEK_API_KEY;
@@ -165,18 +163,28 @@ test('real DSH memory search/read follows corrected and deleted snapshots across
   const {MemoryStore}=await import('../src/plugin/memory/store.ts');
   const {prepareRecall,readRecall}=await import('../src/plugin/memory/recall.ts');
   const env=discover();mkdirSync('.runs',{recursive:true});const dir=mkdtempSync(resolve('.runs','memory-runtime-'));
-  const home=join(dir,'config');mkdirSync(home);writeFileSync(join(home,'settings.yaml'),JSON.stringify({'llm-deepseek':{protocol:'chat-completions'}}));
+  const home=join(dir,'config');mkdirSync(home);writeFileSync(join(home,'settings.yaml'),'{}');
   const store=new MemoryStore(join(dir,'memory'));let snapshot=await store.snapshot();
   await store.update(snapshot.revision,{add:'MEMORY_ORIGINAL: prefer frontend examples'});snapshot=await store.snapshot();
   const id=snapshot.entries[0]!.id;let recall=prepareRecall(snapshot,'examples'),expected='MEMORY_ORIGINAL';const calls:string[]=[];
   const server=createServer(async(req,res)=>{
     let body='';for await(const chunk of req)body+=chunk;const input=JSON.parse(body);
-    const lastUser=input.messages.findLastIndex((m:any)=>m.role==='user');const tail=input.messages.slice(lastUser+1);const results=tail.filter((m:any)=>m.role==='tool');
-    res.writeHead(200,{'Content-Type':'text/event-stream'});
-    const emit=(delta:any,finish_reason:string|null=null)=>res.write(`data: ${JSON.stringify({id:'test',object:'chat.completion.chunk',created:0,model:'deepseek-chat',choices:[{index:0,delta,finish_reason}]})}\n\n`);
-    if(expected && results.length<2){const name=results.length?'memory_read':'memory_search';emit({tool_calls:[{index:0,id:`call-${results.length}`,type:'function',function:{name,arguments:JSON.stringify(results.length?{id}:{query:'examples'})}}]});emit({},'tool_calls');}
-    else {if(expected)assert.ok(JSON.stringify(results).includes(expected));else assert.ok(JSON.stringify(input.messages[lastUser]).includes('"total":0') || JSON.stringify(input.messages[lastUser]).includes('\\"total\\":0'));emit({content:expected||'NO_MEMORY'});emit({},'stop');}
-    res.end('data: [DONE]\n\n');
+    assert.equal(req.url,'/v1/messages');
+    const results=currentToolResults(input.messages);
+    if(expected && results.length<2){
+      const name=results.length?'memory_read':'memory_search';
+      messagesResponse(res,{tool:{id:`call-${results.length}`,name,input:results.length?{id}:{query:'examples'}}});
+    } else {
+      if(expected)assert.ok(JSON.stringify(results).includes(expected));
+      else {
+        const question=input.messages.findLast((message:any)=>message.role==='user'&&
+          (typeof message.content==='string'||message.content.some((block:any)=>block.type==='text')));
+        const text=typeof question.content==='string'?question.content:question.content.filter((block:any)=>block.type==='text').map((block:any)=>block.text).join('\n');
+        const current=JSON.parse(text.slice(text.lastIndexOf('\n')+1));
+        assert.equal(current.total,0);assert.deepEqual(current.index,[]);
+      }
+      messagesResponse(res,{text:expected||'NO_MEMORY'});
+    }
   });
   server.listen(0,'127.0.0.1');await once(server,'listening');
   const oldUrl=process.env.DEEPSEEK_BASE_URL,oldKey=process.env.DEEPSEEK_API_KEY;
@@ -184,34 +192,31 @@ test('real DSH memory search/read follows corrected and deleted snapshots across
   const options={packageRoot:env.root,nodePath:env.node,dshHome:home,runtimeHome:join(dir,'runtime'),bridgePath:resolve('src/plugin/bridge.mjs'),cwd:dir,provider:'deepseek-official',model:'deepseek-chat'};
   let client=new DshClient(options,async(name,args)=>{calls.push(name);return readRecall(recall,name,args);},()=>{});
   try {
-    await client.prompt(randomUUID(),`Explain examples\n${recall.prompt}`);
+    assert.equal((await client.prompt(randomUUID(),`Explain examples\n${recall.prompt}`)).kind,'completed');
     snapshot=await store.snapshot();await store.update(snapshot.revision,{edit:{id,text:'MEMORY_CORRECTED: prefer Python examples'}});
     recall=prepareRecall(await store.snapshot(),'examples');expected='MEMORY_CORRECTED';const session=randomUUID();
-    await client.prompt(session,`Explain examples\n${recall.prompt}`);
+    assert.equal((await client.prompt(session,`Explain examples\n${recall.prompt}`)).kind,'completed');
     await client.stop();client=new DshClient(options,async(name,args)=>readRecall(recall,name,args),()=>{});
     snapshot=await store.snapshot();await store.update(snapshot.revision,{remove:id});recall=prepareRecall(await store.snapshot(),'examples');expected='';
-    await client.prompt(session,`Continue\n${recall.prompt}`);
+    assert.equal((await client.prompt(session,`Continue\n${recall.prompt}`)).kind,'completed');
     assert.deepEqual(calls,['memory_search','memory_read','memory_search','memory_read']);
   } finally {await client.stop();server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));oldUrl===undefined?delete process.env.DEEPSEEK_BASE_URL:process.env.DEEPSEEK_BASE_URL=oldUrl;oldKey===undefined?delete process.env.DEEPSEEK_API_KEY:process.env.DEEPSEEK_API_KEY=oldKey;}
 });
 
 test('real DSH memory management tool follows permission across process restarts', {timeout:60000},async()=>{
   const env=discover();mkdirSync('.runs',{recursive:true});const dir=mkdtempSync(resolve('.runs','manage-bridge-'));
-  const home=join(dir,'config');mkdirSync(home);writeFileSync(join(home,'settings.yaml'),JSON.stringify({'llm-deepseek':{protocol:'chat-completions'}}));
+  const home=join(dir,'config');mkdirSync(home);writeFileSync(join(home,'settings.yaml'),'{}');
   const requests:{stage:number;names:string[];results:any[]}[]=[];
   let stage=0;
   const server=createServer(async(req,res)=>{
     let body='';for await(const chunk of req)body+=chunk;
     const input=JSON.parse(body);
-    const lastUser=input.messages.findLastIndex((m:any)=>m.role==='user');
-    const results=input.messages.slice(lastUser+1).filter((m:any)=>m.role==='tool');
-    requests.push({stage,names:(input.tools??[]).map((t:any)=>t.function.name),results});
-    res.writeHead(200,{'Content-Type':'text/event-stream'});
-    const emit=(delta:object,finish_reason:string|null=null)=>res.write(`data: ${JSON.stringify({id:'test',object:'chat.completion.chunk',created:0,model:'deepseek-chat',choices:[{index:0,delta,finish_reason}]})}\n\n`);
+    assert.equal(req.url,'/v1/messages');
+    const results=currentToolResults(input.messages);
+    requests.push({stage,names:(input.tools??[]).map((t:any)=>t.name),results});
     if(stage===1 && !results.length){
-      emit({tool_calls:[{index:0,id:'manage-call',type:'function',function:{name:'memory_manage',arguments:JSON.stringify({action:'add',text:'先定义再举例',quote:'请记住：先定义再举例。'})}}]});emit({},'tool_calls');
-    }else{emit({content:'DONE'});emit({},'stop');}
-    res.end('data: [DONE]\n\n');
+      messagesResponse(res,{tool:{id:'manage-call',name:'memory_manage',input:{action:'add',text:'\u5148\u5b9a\u4e49\u518d\u4e3e\u4f8b',quote:'\u8bf7\u8bb0\u4f4f\uff1a\u5148\u5b9a\u4e49\u518d\u4e3e\u4f8b\u3002'}}});
+    }else{messagesResponse(res,{text:'DONE'});}
   });
   server.listen(0,'127.0.0.1');await once(server,'listening');
   const oldUrl=process.env.DEEPSEEK_BASE_URL,oldKey=process.env.DEEPSEEK_API_KEY;
@@ -242,17 +247,16 @@ test('real DSH memory management tool follows permission across process restarts
 
 test('real DSH memory organizer has no tools, isolates requests, and cancels without a result', {timeout:60000},async()=>{
   const {runOrganizer}=await import('../src/plugin/memory/organizer.ts');
-  const env=discover();const dir=mkdtempSync(resolve('.runs','organizer-test-'));const home=join(dir,'config');mkdirSync(home);writeFileSync(join(home,'settings.yaml'),JSON.stringify({'llm-deepseek':{protocol:'chat-completions'}}));
+  const env=discover();const dir=mkdtempSync(resolve('.runs','organizer-test-'));const home=join(dir,'config');mkdirSync(home);writeFileSync(join(home,'settings.yaml'),'{}');
   let requests=0,hold=false,held!:()=>void;
   const server=createServer(async(req,res)=>{
     let body='';for await(const chunk of req)body+=chunk;
     const input=JSON.parse(body);requests++;
     assert.equal((input.tools??[]).length,0);
-    assert.ok(input.messages.some((m:any)=>typeof m.content==='string'&&m.content.includes('记忆提案整理器')));
-    res.writeHead(200,{'Content-Type':'text/event-stream'});
-    const chunk=(delta:object,finish_reason:string|null=null)=>res.write(`data: ${JSON.stringify({id:'test',object:'chat.completion.chunk',created:0,model:'deepseek-chat',choices:[{index:0,delta,finish_reason}]})}\n\n`);
-    if(hold){held();chunk({content:'partial'});return;}
-    chunk({content:'{"proposals":[]}'});chunk({},'stop');res.end('data: [DONE]\n\n');
+    assert.equal(req.url,'/v1/messages');
+    assert.ok(JSON.stringify(input.system).includes('\u8bb0\u5fc6\u63d0\u6848\u6574\u7406\u5668'));
+    if(hold){messagesResponse(res,{text:'partial',hold:true});held();return;}
+    messagesResponse(res,{text:'{"proposals":[]}'});
   });
   server.listen(0,'127.0.0.1');await once(server,'listening');
   const oldUrl=process.env.DEEPSEEK_BASE_URL,oldKey=process.env.DEEPSEEK_API_KEY;

@@ -1,4 +1,4 @@
-import {sourceRevision} from './source-revision';
+import {sourceRevision} from './source-revision.ts';
 import type {App, TFile} from 'obsidian';
 
 const MAX_SCAN = 2000;

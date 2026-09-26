@@ -162,3 +162,20 @@ GUI 合成验收资源保留于被 Git 忽略的 `.runs/`，不作为发布产�
 最终构建安装至隔离的 .runs/Mac 审查库，在原生 Obsidian 1.13.7 重载。实测右键“向 Deepsidian 提问”保留已有草稿，预览显示标题“缓存边界”和行 4；重载后草稿与快照恢复。关闭来源笔记后发送一次合成问题，官方 deepseek-flash 正确返回阈值 7319 和标记 CEDAR-MAC-066；下一轮清单不再附带已消费快照。未使用个人笔记作为模型输入。Windows 原生交互本轮未实测。
 
 修复及记录留在 main 工作区，未提交或推送；Tab 补全实验分支未合并。
+
+## DSH 0.1.7-rc.2 兼容验收（2026-09-26）
+
+本机全局 DSH 从 0.1.6-alpha.2 升级到 0.1.7-rc.2，doctor 确认主包与六个受检组件均为 rc.2。该版本属于 npm next；本日 latest 仍为 0.1.5-rc.3，README 使用精确版本安装。旧运行时保留于忽略的 .runs/dsh-016-baseline，供迁移验证。
+
+适配上游移除 settings-file 和官方 Chat Completions 协议：显式导入允许的供应商配置，按旧 settings、SDK profile patch、公共 patch 的顺序应用；保留最终禁用状态及 config 整体替换语义。只读取普通 YAML，不导入任意工具插件；Web/Desktop 专属 profile 配置不自动继承。移除的 protocol 字段明确报迁移错误。旧运行时继续使用旧组合，模型预览与实际启动读取相同来源。另修复 knowledge.ts 的 Node 原生 TypeScript 导入扩展名，并让离线测试直接导入生产模块。
+
+两位子 agent 审查运行时配置及测试，修复禁用状态过早判定、旧运行时模型预览与启动配置不一致，以及删除记忆断言可能被历史内容误满足的问题；独立最终复核未发现新增确定问题。
+
+最终验证：
+
+- npm run check：139/139 离线测试、类型检查及构建通过；git diff --check 通过。
+- 全局 rc.2 的 DSH 集成 11/11，无跳过。包含 0.1.5-rc.2 与 0.1.6-alpha.2 历史迁移、分支边界和重启、Messages 流式与工具/图片、取消、记忆权限，以及合成 HTTP 自定义供应商和网页工具。配置测试包含禁用后恢复、无关适配器禁用和空配置替换。
+- 官方付费 deepseek-official/deepseek-flash：选区 3/3、分支 6/6、记忆管理 8/8；最终修复后使用全局安装重跑选区 3/3，并检查完整回答及工具记录。输入均为合成资料，无个人笔记。报告分别为 .runs/live-selection-iOlwlC/report.json、.runs/live-fork-Xgamwn/report.json、.runs/live-manage-7YXE7C/report.json、.runs/live-selection-MCwKR7/report.json。自动报告的 review-pending 字段保留原始结果；人工复核记录在本文，不将自动断言当成全面语义质量保证。
+- 最终构建安装至隔离 .runs/Mac 审查库，在原生 Obsidian 1.13.7 重载。状态显示 DSH 0.1.7-rc.2，无“此版本未验证”；升级前的合成会话继续调用官方 deepseek-flash，约 2 秒完成，准确返回阈值 7319、标记 CEDAR-MAC-066。输入 2436、输出 102 tokens，缓存读取 74%；输入区和分支按钮恢复可用。
+
+本轮未验证 Windows 原生界面、全新机器安装或独立 DSH 终端的原生 shell 工具。新版 DSH 桌面端能力不等于已集成至 sdk-minimal 插件。代码与记录留在本地，未提交或推送。
