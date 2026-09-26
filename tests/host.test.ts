@@ -463,6 +463,7 @@ test('fork publishes only after runtime and host persistence succeed; inherited 
   let saved:any;p.saveData=async(value:any)=>{saves++;saved=structuredClone(value);};
   await p.forkChat(1);
   const child=p.chat;assert.notEqual(child.id,parent.id);assert.equal(child.messages.length,2);
+  assert.equal(child.title,'学习分支（1）');assert.equal(saved.chats[0].title,child.title);
   assert.equal(child.goal,parent.goal);assert.equal(child.useMemory,false);assert.equal(child.fork.parentId,parent.id);
   assert.equal(saved.activeId,child.id);assert.equal(forks,2);assert.equal(saves,2);
   assert.equal(memorySourceStart(child),2);assert.deepEqual(contributionSources(child),[]);
@@ -470,6 +471,28 @@ test('fork publishes only after runtime and host persistence succeed; inherited 
   child.messages.push({role:'user',text:'新的问题'});assert.equal(contributionSources(child).length,1);
   child.messages[0].attachments.push('another.png');assert.deepEqual(parent.messages[0].attachments,['image.png']);
   child.messages[0].text='modified';assert.throws(()=>contributionSources(child),/继承记录已改变/);
+});
+
+test('fork titles stay distinct across siblings, nested forks and restored history',async()=>{
+  const p=new Deepsidian();p.capture=()=>{};
+  const parent={id:'parent',title:'一个超过二十四个字符的原始会话标题，用来验证编号不会截断标题（2）',messages:[
+    {role:'user',text:'question'},{role:'assistant',text:'answer',status:'完成',forkSeq:7}]};
+  p.state.chats=[parent];p.state.activeId=parent.id;
+  p.connect=async()=>({fork:async()=>{}});
+  let saved:any;p.saveData=async(value:any)=>{saved=structuredClone(value);};
+  await p.forkChat(1);const first=p.chat;
+  assert.equal(first.title,`${parent.title}（1）`);
+  await p.selectChat(parent.id);await p.forkChat(1);
+  assert.equal(p.chat.title,`${parent.title}（2）`);
+  p.state=saved;await p.selectChat(first.id);await p.forkChat(1);
+  assert.equal(p.chat.title,`${parent.title}（3）`);
+  assert.equal(p.chat.fork.parentTitle,first.title);
+  assert.equal(p.state.chats.find((c:any)=>c.id===parent.id).title,parent.title);
+  // A legacy branch keeps its saved title; its next child gets a numbered title.
+  const legacy={...structuredClone(first),id:'legacy',title:'旧标题 · 分支'};
+  p.state.chats.push(legacy,{id:'unrelated',title:'旧标题（1）',messages:[]});
+  await p.selectChat(legacy.id);await p.forkChat(1);
+  assert.equal(p.chat.title,'旧标题（2）');assert.equal(legacy.title,'旧标题 · 分支');
 });
 
 test('fork rejects legacy, failed and busy answers and leaves parent selected on runtime failure',async()=>{

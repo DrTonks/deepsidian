@@ -36,6 +36,7 @@ import { MemoryScheduler, newIdleMemory, type IdleMemoryState } from './memory/s
 import {KnowledgeTools} from './knowledge';
 import {CatalogModal} from './catalog';
 import {SourcesModal} from './sources-modal';
+import { nextForkTitle } from './chat-title';
 
 export default class Deepsidian extends Plugin {
   state: Saved = { settings: { ...defaults }, chats: [], activeId: '' };
@@ -453,7 +454,7 @@ export default class Deepsidian extends Plugin {
     const parent = this.chat, answer = parent?.messages[messageIndex];
     if (!parent || answer?.role !== 'assistant' || answer.status !== '完成' || !Number.isSafeInteger(answer.forkSeq) || answer.forkSeq! < 0)
       throw Error('此回答没有可靠的分支位置，请从更新后的完整回答创建分支');
-    const chat: Chat = { id: randomUUID(), title: `${parent.title.slice(0, 24)} · 分支`,
+    const chat: Chat = { id: randomUUID(), title: nextForkTitle(parent, this.state.chats),
       messages: structuredClone(parent.messages.slice(0, messageIndex + 1)), goal: parent.goal,
       useMemory: parent.useMemory, contributeMemory: parent.contributeMemory };
     chat.fork = { parentId: parent.id, parentTitle: parent.title, messageIndex, atSeq: answer.forkSeq!,
