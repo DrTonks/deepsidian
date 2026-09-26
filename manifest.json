@@ -1,7 +1,7 @@
 {
   "id": "deepsidian",
   "name": "Deepseedian",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "minAppVersion": "1.13.7",
   "description": "Chat with a local DeepSeek Harness runtime using notes, attachments, and optional web tools.",
   "author": "Deepseedian contributors",

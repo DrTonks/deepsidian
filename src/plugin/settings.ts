@@ -16,7 +16,7 @@ export class DeepsidianSettings extends PluginSettingTab {
     return details.createDiv({cls:'ds-settings-body'});
   }
   display() {
-    const el = this.containerEl; for(const section of Array.from(el.querySelectorAll<HTMLDetailsElement>('[data-settings-section]')))this.expanded.set(section.dataset.settingsSection!,section.open); el.empty(); el.addClass('ds-settings'); el.createEl('h2', { text: 'Deepseedian' });
+    const el = this.containerEl; for(const section of Array.from(el.querySelectorAll<HTMLDetailsElement>('[data-settings-section]')))this.expanded.set(section.dataset.settingsSection!,section.open); el.empty(); el.addClass('ds-settings'); new Setting(el).setName('使用前须知').setHeading();
     el.createEl('p', { text: '复用本机 DSH 的模型与凭证。选区、对话和工具读取内容会发送给你配置的模型供应商。工具可检索笔记、搜索网络和读取网页，网络能力可分别关闭。' });
     const common=this.section(el,'common','常规','连接与默认模型',true);
     const memory=this.section(el,'memory','长期记忆','读取、AI管理与闲时整理',true);
@@ -75,4 +75,3 @@ export class DeepsidianSettings extends PluginSettingTab {
     new Setting(updates).setName('检查更新').setDesc(this.plugin.state.updates?.newest ? `上次查询：${this.plugin.state.updates.newest}` : '尚未查询').addButton(b => b.setButtonText('立即检查').onClick(() => void this.plugin.update(true)));
   }
 }
-

@@ -4,7 +4,7 @@
 
 Deepseedian is a desktop Obsidian assistant powered by a locally installed [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) runtime. Ask questions with note context, inspect sources and citations, fork conversations, manage vault memory, generate local article catalogs and Bases, and request manual inline completion.
 
-Version **0.7.0** is available on [GitHub Releases](https://github.com/DrTonks/deepseedian/releases/tag/0.7.0). The community directory submission is under review. The interface is currently primarily Chinese; an English interface is not yet available. Detailed Chinese documentation follows below.
+Version **0.7.1** is available on [GitHub Releases](https://github.com/DrTonks/deepseedian/releases/tag/0.7.1). This patch fixes the UI guideline errors reported in the 0.7.0 community review; directory approval is still pending. The interface is currently primarily Chinese; an English interface is not yet available. Detailed Chinese documentation follows below.
 
 ### Installation
 
@@ -35,6 +35,8 @@ AI suggestions can be incomplete or factually wrong. Read them before accepting;
 
 ### Development and releases
 
+The check command includes the official Obsidian ESLint rules. Existing general JavaScript/TypeScript findings remain visible warnings; Obsidian rules retain their recommended severity. TypeScript 5.9.3 is pinned for the linter’s compiler API compatibility. Local checks do not replace the directory scan.
+
 Use Node.js 24+ and run `npm ci`, `npm run check`, and `npm run test:integration` (requires DSH). Older-runtime migration fixtures are optional and are reported as skipped when absent. `npm run package:release` produces the three release assets. Live-provider test scripts incur charges and use synthetic fixtures by default; real-article testing requires authorization. Reports and credentials must not be committed.
 
 Source pushes alone do not deliver plugin updates. Increment the version, publish a matching Git tag and GitHub Release with the three assets, and check the community review results. See the [release guide](docs/COMMUNITY-RELEASE.md).
@@ -47,7 +49,7 @@ Licensed under [MIT](LICENSE). The DeepSeek whale icon's attribution and license
 
 Deepseedian 是面向桌面端 Obsidian 的 AI 助手，通过本机 [DeepSeek Harness（DSH）](https://github.com/deepseek-ai/deepseek-harness) 连接模型供应商，在笔记上下文中完成问答、来源检索与会话管理。
 
-当前版本为 **0.7.0 正式版本**，社区条目已创建，审核尚未完成。
+当前版本为 **0.7.1**，修复 0.7.0 社区审核发现的界面规范错误，目录审核尚未完成。
 
 [安装与环境](#安装与环境) · [使用说明](#使用说明) · [费用与隐私](#费用与隐私) · [开发与验证](#开发与验证) · [社区发布指南](docs/COMMUNITY-RELEASE.md)
 
@@ -95,20 +97,20 @@ Deepseedian 依次读取 DSH 配置目录中的 `settings.yaml`、`profiles/sdk-
 
 ### 2. 安装插件
 
-从 [GitHub Release 0.7.0](https://github.com/DrTonks/deepseedian/releases/tag/0.7.0) 下载 `main.js`、`manifest.json` 和 `styles.css`，复制到笔记库的 `.obsidian/plugins/deepsidian/`。
+从 [GitHub Release 0.7.1](https://github.com/DrTonks/deepseedian/releases/tag/0.7.1) 下载 `main.js`、`manifest.json` 和 `styles.css`，复制到笔记库的 `.obsidian/plugins/deepsidian/`。
 
 也可以从源码构建同一版本：
 
 ```sh
 git clone https://github.com/DrTonks/deepseedian.git
 cd deepseedian
-git checkout 0.7.0
+git checkout 0.7.1
 npm ci
 npm run check
 npm run package:release
 ```
 
-将 `dist/release/0.7.0/` 中的三个文件复制到笔记库的 `.obsidian/plugins/deepsidian/`：
+将 `dist/release/0.7.1/` 中的三个文件复制到笔记库的 `.obsidian/plugins/deepsidian/`：
 
 ```text
 main.js

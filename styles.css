@@ -211,6 +211,7 @@
 .ds-catalog-modal .setting-item-control { min-width:0; flex-wrap:wrap; }
 .ds-catalog-modal .setting-item-control input { max-width:100%; }
 .ds-catalog-modal pre { background:var(--background-secondary); padding:12px; border-radius:6px; overflow-wrap:anywhere; font-size:12px; line-height:1.6; }
+.ds-catalog-modal .ds-catalog-preview { max-height:260px; overflow:auto; white-space:pre-wrap; }
 .deepsidian .ds-attachment { flex-wrap:wrap; min-width:0; }
 .deepsidian .ds-attachment > span { min-width:0; flex:1; }
 .deepsidian .ds-attachment details { min-width:0; max-width:100%; font-size:11px; }

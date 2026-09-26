@@ -1,6 +1,6 @@
 # 社区发布指南
 
-0.6.6 已公开发布。本次以 **0.7.0** 作为社区首次提交版本，维护者已授权发布和提交审核；发布完成不等于目录审核通过。当前状态请查看 [GitHub Releases](https://github.com/DrTonks/deepseedian/releases) 和社区管理页。
+0.7.0 首次社区审核未通过：目录预览存在三处静态内联样式赋值，设置页手动创建 HTML 标题。0.7.1 将样式移入 CSS 并使用标准 Setting 标题，同时加入官方 ESLint 本地预检。维护者已授权发布和提交审核；发布完成不等于目录审核通过。当前状态请查看 [GitHub Releases](https://github.com/DrTonks/deepseedian/releases) 和社区管理页。
 
 ## 产品名称与兼容
 
@@ -10,7 +10,7 @@
 
 ## 本次发布准备
 
-- 保留插件版本 0.7.0；首次发布可使用这一版本。以后发布必须递增，Git 标签与 manifest.version 完全一致，例如 `0.7.0`，不要加 `v`。
+- 本次修复版本为 0.7.1，不覆盖已发布的 0.7.0。以后发布必须递增，Git 标签与 manifest.version 完全一致，例如 `0.7.1`，不要加 `v`。
 - 最低 Obsidian 版本改为实际验证的 1.13.7，桌面专用。旧 1.7.2 声明没有实机依据。
 - 社区安装只获取 `main.js`、`manifest.json`、`styles.css`。桥接源码和必要版权声明必须包含在 main.js 内；不能要求用户另下载 bridge.mjs。启动时物化的桥接文件是随包代码的运行产物，不从网络安装或更新依赖。
 - Node.js 24+、DSH 0.1.7-rc.2 仍是手动安装的前置条件。社区安装插件不会安装这些软件；请在简介/README 中清楚说明。
@@ -28,7 +28,7 @@ npm run package:release
 
 集成验证依赖本机 DSH；旧历史迁移需要另设 DSH_LEGACY_PACKAGE_ROOT 与 DSH_PREVIOUS_PACKAGE_ROOT。不提供旧安装时会跳过这些迁移，发布记录应如实区分。真实供应商测试需单独运行并人工读回答，不在 CI 内使用密钥或个人笔记。
 
-发布目录为 `dist/release/0.7.0/`，只上传其中三个标准文件。验证应从这三个文件安装到测试库，不能用保留旧 bridge.mjs 的开发目录证明首次安装正常。不要上传 data.json、.runtime、记忆、个人库、凭据或 .runs。
+发布目录为 `dist/release/0.7.1/`，只上传其中三个标准文件。验证应从这三个文件安装到测试库，不能用保留旧 bridge.mjs 的开发目录证明首次安装正常。不要上传 data.json、.runtime、记忆、个人库、凭据或 .runs。
 
 ## 正式发布步骤
 
@@ -40,21 +40,21 @@ npm run package:release
 
 ### 2. 为已审查的提交构建发行文件
 
-在准备发布的提交上执行前文检查及 `npm run package:release`。确认 `dist/release/0.7.0/manifest.json` 与根目录 manifest 一致，在干净测试库仅安装三个文件验证。保存本次验收结果；不得把此前构建的测试结果套用到后续未验证的修改。
+在准备发布的提交上执行前文检查及 `npm run package:release`。确认 `dist/release/0.7.1/manifest.json` 与根目录 manifest 一致，在干净测试库仅安装三个文件验证。保存本次验收结果；不得把此前构建的测试结果套用到后续未验证的修改。
 
 若提交前调整版本，同步修改 package.json、package-lock.json、manifest.json 和 versions.json，再构建。社区版本须为 `x.y.z`，初步构建不代表必须使用 `1.0.0`。
 
 ### 3. 创建 GitHub Release
 
-审查通过后，在 [仓库 Releases](https://github.com/DrTonks/deepseedian/releases) 选择新建 Release。选择已审查的提交，创建与 manifest.version **完全一致**的标签，例如 `0.7.0`（不要加 `v`）。可以先保存草稿检查附件；供社区安装的版本最终需要公开发布。
+审查通过后，在 [仓库 Releases](https://github.com/DrTonks/deepseedian/releases) 选择新建 Release。选择已审查的提交，创建与 manifest.version **完全一致**的标签，例如 `0.7.1`（不要加 `v`）。可以先保存草稿检查附件；供社区安装的版本最终需要公开发布。
 
 分别上传：
 
-- `dist/release/0.7.0/main.js`
-- `dist/release/0.7.0/manifest.json`
-- `dist/release/0.7.0/styles.css`
+- `dist/release/0.7.1/main.js`
+- `dist/release/0.7.1/manifest.json`
+- `dist/release/0.7.1/styles.css`
 
-不要只上传 ZIP，GitHub 自动生成的源码压缩包也不能代替这三个附件。Release 标题可为 `Deepseedian 0.7.0`，说明当前能力、Node/DSH 前置环境、手动补全边界、费用与数据流以及验证范围。
+不要只上传 ZIP，GitHub 自动生成的源码压缩包也不能代替这三个附件。Release 标题可为 `Deepseedian 0.7.1`，说明当前能力、Node/DSH 前置环境、手动补全边界、费用与数据流以及验证范围。
 
 ### 4. 在 Obsidian Community 提交
 

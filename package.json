@@ -12,7 +12,7 @@
     "doctor": "node scripts/doctor.ts",
     "test": "node --test tests/core.test.ts tests/trace.test.ts tests/memory.test.ts tests/manage.test.ts tests/host.test.ts tests/discovery.test.ts tests/scheduler.test.ts tests/catalog.test.ts tests/catalog-host.test.ts tests/knowledge.test.ts tests/completion-budget.test.ts tests/completion.test.ts tests/selection-context.test.ts",
     "test:integration": "node --test tests/runtime.test.ts tests/web.test.ts tests/messages.test.ts tests/completion-runtime.test.ts tests/community-package.test.ts",
-    "check": "npm run typecheck && npm test && npm run build",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "live": "node scripts/live.ts",
     "preview": "node scripts/preview.mjs",
     "package:source": "node scripts/package-source.mjs",
@@ -24,7 +24,8 @@
     "live:completion": "node scripts/live-completion.ts",
     "package:experimental": "npm run build && node scripts/package-experimental.mjs",
     "live:selection": "node scripts/live-selection.ts",
-    "package:release": "npm run build && node scripts/package-release.mjs"
+    "package:release": "npm run build && node scripts/package-release.mjs",
+    "lint": "eslint src/plugin"
   },
   "devDependencies": {
     "@codemirror/autocomplete": "6.20.3",
@@ -35,10 +36,12 @@
     "@codemirror/view": "6.38.6",
     "@types/node": "22.20.2",
     "esbuild": "0.28.2",
+    "eslint": "9.39.5",
+    "eslint-plugin-obsidianmd": "0.4.2",
     "obsidian": "1.13.1",
-    "typescript": "7.0.2"
+    "typescript": "5.9.3"
   },
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "An Obsidian desktop plugin for note-grounded AI conversations, memory, and manual inline completion, powered by DeepSeek Harness.",
   "license": "MIT",
   "overrides": {
